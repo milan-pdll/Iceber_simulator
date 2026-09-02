@@ -29,12 +29,11 @@ export function App() {
       if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
         const saved = localStorage.getItem('iceberg_theme');
         if (saved === 'light' || saved === 'dark') return saved;
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) return 'light';
       }
     } catch {
       // ignore
     }
-    return 'dark';
+    return 'light';
   });
 
   useEffect(() => {
