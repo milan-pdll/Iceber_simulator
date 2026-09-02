@@ -233,7 +233,7 @@ export const QueryVisualizer: React.FC<QueryVisualizerProps> = ({
                         <tr key={rIdx} className="hover:bg-slate-50 dark:hover:bg-[#141C30]">
                           {Object.entries(row)
                             .filter(([k]) => k !== '__file_source')
-                            .map(([k, v], cIdx) => (
+                            .map(([, v], cIdx) => (
                               <td key={cIdx} className="p-2 truncate max-w-[120px]">
                                 {String(v)}
                               </td>

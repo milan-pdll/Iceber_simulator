@@ -663,7 +663,6 @@ export function deleteRecordsCoW(
 
   let totalDeletedCount = 0;
   const newStorageObjects: Record<string, StorageObject> = {};
-  const newManifestEntries: ManifestEntry[] = [];
   const newManifestListEntries: ManifestListEntry[] = [];
 
   const newSequenceNumber = currentMetadata['last-sequence-number'] + 1;
@@ -1337,7 +1336,6 @@ export function purgeOrphanFiles(state: TableState): {
   reclaimedBytes: number;
 } {
   const currentMetadata = state.metadataHistory[state.catalogPointer.currentMetadataLocation];
-  const liveSnapshotIds = new Set(currentMetadata.snapshots.map(s => s['snapshot-id']));
 
   // Determine all reachable files starting from active snapshots
   const reachableUris = new Set<string>();

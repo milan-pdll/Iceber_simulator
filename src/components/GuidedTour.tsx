@@ -104,9 +104,10 @@ const TOUR_STEPS: TourStep[] = [
 ];
 
 export const GuidedTour: React.FC<GuidedTourProps> = ({ isOpen, onClose }) => {
+  const [stepIndex, setStepIndex] = useState<number>(0);
+
   if (!isOpen) return null;
 
-  const [stepIndex, setStepIndex] = useState<number>(0);
   const currentStep = TOUR_STEPS[stepIndex];
 
   const handleNext = () => {

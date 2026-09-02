@@ -27,12 +27,11 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
   selectedNode,
   onClose
 }) => {
-  if (!selectedNode) return null;
-
   const [activeTab, setActiveTab] = useState<'summary' | 'json' | 'stats' | 'storage'>('summary');
   const [copied, setCopied] = useState<boolean>(false);
 
   const jsonPayload = React.useMemo(() => {
+    if (!selectedNode) return {};
     switch (selectedNode.type) {
       case 'catalog':
         return {
@@ -56,6 +55,8 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
         return {};
     }
   }, [selectedNode]);
+
+  if (!selectedNode) return null;
 
   const jsonString = JSON.stringify(jsonPayload, null, 2);
 

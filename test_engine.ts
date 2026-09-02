@@ -3,7 +3,6 @@ import {
   appendRecords,
   deleteRecordsMoR,
   deleteRecordsCoW,
-  updateRecords,
   compactTable,
   expireSnapshots,
   purgeOrphanFiles
