@@ -8,6 +8,7 @@ import {
   RotateCcw,
   HardDrive,
   FileCode,
+  FileJson,
   CheckCircle2,
   ChevronDown,
   Sun,
@@ -23,6 +24,7 @@ interface HeaderNavProps {
   onSelectScenario: (scenario: ScenarioDefinition) => void;
   onResetTable: () => void;
   onOpenDataModal: () => void;
+  onOpenMetadataModal: () => void;
   onOpenTour: () => void;
   isQueryDrawerOpen: boolean;
   onToggleQueryDrawer: () => void;
@@ -38,6 +40,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   onSelectScenario,
   onResetTable,
   onOpenDataModal,
+  onOpenMetadataModal,
   onOpenTour,
   isQueryDrawerOpen,
   onToggleQueryDrawer,
@@ -167,6 +170,15 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
         >
           <Sparkles className="w-3.5 h-3.5 text-sky-500 dark:text-sky-400" />
           <span className="hidden sm:inline">Guided Tour</span>
+        </button>
+
+        <button
+          onClick={onOpenMetadataModal}
+          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-500/15 border border-indigo-200 dark:border-indigo-500/30 hover:border-indigo-400 text-indigo-700 dark:text-indigo-300 text-xs font-medium transition-all shadow-sm"
+          title="Inspect Official Apache Iceberg Table Metadata JSON (Spec v2)"
+        >
+          <FileJson className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+          <span className="hidden sm:inline">Table Metadata</span>
         </button>
 
         <button

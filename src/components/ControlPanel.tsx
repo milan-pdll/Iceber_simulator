@@ -14,7 +14,8 @@ import {
   Archive,
   Trash,
   Sliders,
-  FilePlus2
+  FilePlus2,
+  GitMerge
 } from 'lucide-react';
 import { formatBytes } from '../utils/formatting';
 
@@ -24,6 +25,7 @@ interface ControlPanelProps {
   onDeleteRecordsMoR: (predicate: string, msg?: string) => void;
   onDeleteRecordsCoW: (predicate: string, msg?: string) => void;
   onUpdateRecords: (predicate: string, updates: Record<string, any>, mode: 'mor' | 'cow', msg?: string) => void;
+  onMergeRecords: (records: Record<string, any>[], matchKey: string, mode: 'mor' | 'cow', msg?: string) => void;
   onCompactTable: (msg?: string) => void;
   onExpireSnapshots: (snapshotIds: number[]) => void;
   onPurgeOrphans: () => void;
@@ -36,12 +38,13 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onDeleteRecordsMoR,
   onDeleteRecordsCoW,
   onUpdateRecords,
+  onMergeRecords,
   onCompactTable,
   onExpireSnapshots,
   onPurgeOrphans,
   onInitCustomTable
 }) => {
-  const [activeTab, setActiveTab] = useState<'append' | 'delete' | 'maintenance' | 'schema'>('append');
+  const [activeTab, setActiveTab] = useState<'append' | 'delete' | 'merge' | 'maintenance' | 'schema'>('append');
 
   const currentMetadata = state.metadataHistory[state.catalogPointer.currentMetadataLocation];
   const currentSchema = currentMetadata.schemas.find(s => s['schema-id'] === currentMetadata['current-schema-id']) || currentMetadata.schemas[0];
@@ -56,6 +59,11 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   const [deleteMode, setDeleteMode] = useState<'mor' | 'cow'>('mor');
   const [updateField, setUpdateField] = useState<string>('customer_tier');
   const [updateValue, setUpdateValue] = useState<string>('VIP-Platinum');
+
+  // Merge (Upsert) state
+  const [mergeMatchKey, setMergeMatchKey] = useState<string>('id');
+  const [mergeMode, setMergeMode] = useState<'mor' | 'cow'>('mor');
+  const [mergeJsonInput, setMergeJsonInput] = useState<string>('');
 
   // Schema creation state
   const [newTableName, setNewTableName] = useState<string>('db.custom_events');
@@ -146,6 +154,127 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     onUpdateRecords(predicateInput, updateObj, deleteMode, `Updated where ${predicateInput}`);
   };
 
+  // Helper to extract active records for realistic Merge Upsert simulation
+  const getActiveRows = () => {
+    const rows: Record<string, any>[] = [];
+    const snap = currentMetadata.snapshots.find(s => s['snapshot-id'] === currentMetadata['current-snapshot-id']);
+    if (!snap) return rows;
+    const mList = state.manifestLists[snap['manifest-list']] || [];
+    const delPositionsByFile: Record<string, Set<number>> = {};
+    mList.forEach(m => {
+      const doc = state.manifestFiles[m.manifest_path];
+      if (doc && doc.content === 1) {
+        doc.entries.forEach(e => {
+          if (e.status !== 2 && e.data_file.referenced_data_file && e.data_file.delete_positions) {
+            const target = e.data_file.referenced_data_file;
+            if (!delPositionsByFile[target]) delPositionsByFile[target] = new Set();
+            e.data_file.delete_positions.forEach(p => delPositionsByFile[target].add(p));
+          }
+        });
+      }
+    });
+    mList.forEach(m => {
+      const doc = state.manifestFiles[m.manifest_path];
+      if (!doc || doc.content === 1) return;
+      doc.entries.forEach(e => {
+        if (e.status === 2) return;
+        const dRows = e.data_file.rows_data || [];
+        const dels = delPositionsByFile[e.data_file.file_path] || new Set();
+        dRows.forEach((r, idx) => {
+          if (!dels.has(idx)) rows.push(r);
+        });
+      });
+    });
+    return rows;
+  };
+
+  const handleMergePreset = (preset: 'quick' | 'cdc') => {
+    const active = getActiveRows();
+    const existingRow = active.length > 0 ? active[0] : null;
+    const departments = ['Engineering', 'Marketing', 'Sales', 'Support', 'Finance'];
+    const tiers = ['VIP-Elite', 'Enterprise-Max', 'Growth-Plus', 'Diamond'];
+
+    const records: Record<string, any>[] = [];
+
+    if (preset === 'quick') {
+      if (existingRow && existingRow[mergeMatchKey] !== undefined) {
+        const updated = {
+          ...existingRow,
+          amount: existingRow.amount ? parseFloat((existingRow.amount * 1.5).toFixed(2)) : 8900.0,
+          customer_tier: 'VIP-Diamond',
+          tier: 'VIP-Diamond',
+          dept: existingRow.dept || 'Engineering',
+          created_at: new Date().toISOString()
+        };
+        records.push(updated);
+      } else {
+        records.push({
+          [mergeMatchKey]: 101,
+          dept: 'Engineering',
+          customer_tier: 'VIP-Gold',
+          amount: 3200.0,
+          created_at: new Date().toISOString()
+        });
+      }
+
+      records.push({
+        [mergeMatchKey]: 888,
+        dept: 'Sales',
+        customer_tier: 'Enterprise',
+        amount: 4950.0,
+        created_at: new Date().toISOString()
+      });
+      records.push({
+        [mergeMatchKey]: 999,
+        dept: 'Support',
+        customer_tier: 'Pro',
+        amount: 1250.0,
+        created_at: new Date().toISOString()
+      });
+    } else {
+      for (let i = 0; i < 5; i++) {
+        if (i < 2 && active[i] && active[i][mergeMatchKey] !== undefined) {
+          records.push({
+            ...active[i],
+            amount: parseFloat((Math.random() * 5000 + 100).toFixed(2)),
+            customer_tier: tiers[i % tiers.length],
+            created_at: new Date().toISOString()
+          });
+        } else {
+          records.push({
+            [mergeMatchKey]: 700 + i,
+            dept: departments[i % departments.length],
+            customer_tier: tiers[i % tiers.length],
+            amount: parseFloat((Math.random() * 4000 + 200).toFixed(2)),
+            created_at: new Date().toISOString()
+          });
+        }
+      }
+    }
+
+    onMergeRecords(
+      records,
+      mergeMatchKey,
+      mergeMode,
+      `MERGE INTO: ${preset === 'quick' ? 'Quick Demo Upsert' : 'CDC Stream Batch'} (${records.length} records)`
+    );
+  };
+
+  const handleCustomMergeSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mergeJsonInput.trim()) {
+      handleMergePreset('quick');
+      return;
+    }
+    try {
+      const parsed = JSON.parse(mergeJsonInput);
+      const arr = Array.isArray(parsed) ? parsed : [parsed];
+      onMergeRecords(arr, mergeMatchKey, mergeMode, `MERGE INTO: Custom batch (${arr.length} records)`);
+    } catch (err) {
+      alert('Invalid JSON: ' + (err as Error).message);
+    }
+  };
+
   const orphanCount = Object.values(state.storageObjects).filter(o => o.isOrphan).length;
   const orphanBytes = Object.values(state.storageObjects)
     .filter(o => o.isOrphan)
@@ -154,7 +283,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   return (
     <div className="h-full flex flex-col bg-slate-50 dark:bg-[#0F1626] border-r border-slate-200 dark:border-[#243048] w-80 lg:w-96 select-none shrink-0 transition-colors duration-200">
       {/* Navigation Tabs */}
-      <div className="grid grid-cols-4 bg-slate-100 dark:bg-[#0B0F17] border-b border-slate-200 dark:border-[#243048] p-1 gap-1 text-xs">
+      <div className="grid grid-cols-5 bg-slate-100 dark:bg-[#0B0F17] border-b border-slate-200 dark:border-[#243048] p-1 gap-1 text-[11px]">
         <button
           onClick={() => setActiveTab('append')}
           className={`py-2 px-1 rounded-lg font-medium transition-all flex items-center justify-center space-x-1 ${
@@ -164,7 +293,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           }`}
         >
           <FilePlus2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-          <span>Insert</span>
+          <span className="truncate">Insert</span>
         </button>
 
         <button
@@ -176,7 +305,19 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           }`}
         >
           <Trash2 className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
-          <span>Mutate</span>
+          <span className="truncate">Mutate</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('merge')}
+          className={`py-2 px-1 rounded-lg font-medium transition-all flex items-center justify-center space-x-1 ${
+            activeTab === 'merge'
+              ? 'bg-white dark:bg-[#1A2338] text-sky-700 dark:text-sky-300 font-semibold shadow-sm'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+          }`}
+        >
+          <GitMerge className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+          <span className="truncate">Merge</span>
         </button>
 
         <button
@@ -188,7 +329,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           }`}
         >
           <FolderSync className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-          <span>Cleanup</span>
+          <span className="truncate">Cleanup</span>
         </button>
 
         <button
@@ -200,7 +341,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           }`}
         >
           <Sliders className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-          <span>Schema</span>
+          <span className="truncate">Schema</span>
         </button>
       </div>
 
@@ -438,7 +579,156 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           </div>
         )}
 
-        {/* ================= TAB 3: MAINTENANCE & GC ================= */}
+        {/* ================= TAB 3: MERGE INTO (UPSERT) ================= */}
+        {activeTab === 'merge' && (
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-sky-700 dark:text-sky-400 flex items-center space-x-1.5">
+                <GitMerge className="w-4 h-4" />
+                <span>MERGE INTO (Upsert / CDC)</span>
+              </h3>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                Evaluates incoming batch against active rows on a match key. Atomically updates matched records and inserts new records.
+              </p>
+            </div>
+
+            {/* SQL Spec Preview */}
+            <div className="p-3 bg-slate-100 dark:bg-[#0B0F17] rounded-xl border border-slate-200 dark:border-[#243048] font-mono text-[11px] text-sky-700 dark:text-sky-300 leading-relaxed shadow-inner">
+              <span className="text-slate-400">MERGE INTO </span>
+              <span className="font-bold text-amber-600 dark:text-amber-400">{state.catalogPointer.tableIdentifier}</span>
+              <span className="text-slate-400"> t USING source s</span>
+              <br />
+              <span className="text-slate-400">ON t.</span>
+              <span className="font-bold text-sky-600 dark:text-sky-400">{mergeMatchKey}</span>
+              <span className="text-slate-400"> = s.</span>
+              <span className="font-bold text-sky-600 dark:text-sky-400">{mergeMatchKey}</span>
+              <br />
+              <span className="text-emerald-600 dark:text-emerald-400 font-semibold">WHEN MATCHED THEN UPDATE</span>
+              <br />
+              <span className="text-indigo-600 dark:text-indigo-400 font-semibold">WHEN NOT MATCHED THEN INSERT</span>
+            </div>
+
+            {/* Config: Match Key & Mutability Mode */}
+            <div className="bg-white dark:bg-[#131B2E] p-3 rounded-xl border border-slate-200 dark:border-[#243048] space-y-3 shadow-sm">
+              <div className="space-y-1">
+                <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block">
+                  Join / Match Key Column
+                </span>
+                <select
+                  value={mergeMatchKey}
+                  onChange={e => setMergeMatchKey(e.target.value)}
+                  className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-[#0B0F17] border border-slate-300 dark:border-[#243048] rounded-lg text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:border-sky-500"
+                >
+                  {currentSchema.fields.map(f => (
+                    <option key={f.id} value={f.name}>
+                      {f.name} ({f.type}) {f.id === 1 ? '— Primary ID' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Mode Switcher */}
+              <div className="space-y-1">
+                <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block">
+                  Iceberg Mutability Architecture
+                </span>
+                <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 dark:bg-[#0B0F17] rounded-lg border border-slate-200 dark:border-[#243048] text-xs">
+                  <button
+                    onClick={() => setMergeMode('mor')}
+                    className={`py-1.5 px-2 rounded-md font-semibold transition-all flex items-center justify-center space-x-1 ${
+                      mergeMode === 'mor'
+                        ? 'bg-sky-500 text-white shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Zap className="w-3.5 h-3.5" />
+                    <span>MoR (Tombstones)</span>
+                  </button>
+
+                  <button
+                    onClick={() => setMergeMode('cow')}
+                    className={`py-1.5 px-2 rounded-md font-semibold transition-all flex items-center justify-center space-x-1 ${
+                      mergeMode === 'cow'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Split className="w-3.5 h-3.5" />
+                    <span>CoW (Rewrite)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Presets */}
+              <div className="space-y-1.5 pt-1 border-t border-slate-100 dark:border-[#1E2A44]">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
+                  Quick 1-Click Simulation Presets
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleMergePreset('quick')}
+                    className="py-2 px-2.5 rounded-lg bg-sky-50 dark:bg-sky-500/10 hover:bg-sky-100 dark:hover:bg-sky-500/20 border border-sky-200 dark:border-sky-500/30 text-sky-700 dark:text-sky-300 text-xs font-semibold text-left transition-all"
+                  >
+                    <div className="font-bold text-[11px]">⚡ Quick Upsert</div>
+                    <div className="text-[10px] text-sky-600/80 dark:text-sky-400/80 font-normal">1 Update + 2 Inserts</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleMergePreset('cdc')}
+                    className="py-2 px-2.5 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 border border-indigo-200 dark:border-indigo-500/30 text-indigo-700 dark:text-indigo-300 text-xs font-semibold text-left transition-all"
+                  >
+                    <div className="font-bold text-[11px]">🌊 CDC Stream</div>
+                    <div className="text-[10px] text-indigo-600/80 dark:text-indigo-400/80 font-normal">5 Micro-Batch Events</div>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Custom JSON Merge Form */}
+            <form onSubmit={handleCustomMergeSubmit} className="bg-white dark:bg-[#131B2E] p-3 rounded-xl border border-slate-200 dark:border-[#243048] space-y-2 shadow-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                  Custom Ingestion Payload (JSON)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const active = getActiveRows();
+                    const existingId = active.length > 0 && active[0][mergeMatchKey] !== undefined ? active[0][mergeMatchKey] : 101;
+                    const sample = [
+                      { [mergeMatchKey]: existingId, dept: 'Engineering', amount: 9500.0, customer_tier: 'VIP-Diamond' },
+                      { [mergeMatchKey]: 999, dept: 'Sales', amount: 3400.0, customer_tier: 'Enterprise' }
+                    ];
+                    setMergeJsonInput(JSON.stringify(sample, null, 2));
+                  }}
+                  className="text-[10px] text-sky-600 hover:text-sky-500 font-mono"
+                >
+                  Load Sample
+                </button>
+              </div>
+
+              <textarea
+                value={mergeJsonInput}
+                onChange={e => setMergeJsonInput(e.target.value)}
+                rows={4}
+                placeholder={`[\n  { "${mergeMatchKey}": 101, "amount": 9500.0 },\n  { "${mergeMatchKey}": 999, "amount": 1200.0 }\n]`}
+                className="w-full p-2 bg-slate-50 dark:bg-[#0B0F17] border border-slate-300 dark:border-[#243048] rounded-lg text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:border-sky-500"
+              />
+
+              <button
+                type="submit"
+                className="w-full py-2 bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-sky-600/20 flex items-center justify-center space-x-1.5"
+              >
+                <GitMerge className="w-4 h-4" />
+                <span>Execute MERGE INTO ({mergeMode.toUpperCase()})</span>
+              </button>
+            </form>
+          </div>
+        )}
+
+        {/* ================= TAB 4: MAINTENANCE & GC ================= */}
         {activeTab === 'maintenance' && (
           <div className="space-y-4">
             <div>

@@ -981,6 +981,682 @@ export function updateRecords(
 }
 
 /**
+ * Perform a MERGE INTO (Upsert / CDC Merge) Transaction
+ * Spec v2 compliant atomic merge operation:
+ * Matches incoming source records against active table records by `matchKey`.
+ * - WHEN MATCHED: Updates existing record with source values.
+ * - WHEN NOT MATCHED: Inserts source record as a new row.
+ * Supports both MoR (Merge-on-Read) and CoW (Copy-on-Write) mutability modes.
+ */
+export function mergeRecords(
+  state: TableState,
+  sourceRecords: Record<string, any>[],
+  matchKey: string = 'id',
+  mode: 'mor' | 'cow' = 'mor',
+  commitMsg?: string
+): TableState {
+  if (!sourceRecords || sourceRecords.length === 0) return state;
+
+  const currentMetadata = state.metadataHistory[state.catalogPointer.currentMetadataLocation];
+  if (!currentMetadata['current-snapshot-id'] || currentMetadata.snapshots.length === 0) {
+    // If no prior snapshot exists, all incoming records are treated as inserts
+    return appendRecords(state, sourceRecords, commitMsg || `MERGE INTO: Initial table ingest (${sourceRecords.length} record(s))`);
+  }
+
+  const currentSnapshot = currentMetadata.snapshots.find(s => s['snapshot-id'] === currentMetadata['current-snapshot-id'])!;
+  const manifestList = state.manifestLists[currentSnapshot['manifest-list']] || [];
+  const currentSchema = currentMetadata.schemas.find(s => s['schema-id'] === currentMetadata['current-schema-id'])!;
+  const partitionSpec = currentMetadata['partition-specs'].find(p => p['spec-id'] === currentMetadata['default-spec-id'])!;
+
+  // 1. Gather all active delete positions by file for MoR
+  const activeDeletePositionsByFile: Record<string, Set<number>> = {};
+  manifestList.forEach(m => {
+    const doc = state.manifestFiles[m.manifest_path];
+    if (doc && doc.content === 1) {
+      doc.entries.forEach(e => {
+        if (e.status !== 2 && e.data_file.referenced_data_file && e.data_file.delete_positions) {
+          const target = e.data_file.referenced_data_file;
+          if (!activeDeletePositionsByFile[target]) {
+            activeDeletePositionsByFile[target] = new Set();
+          }
+          e.data_file.delete_positions.forEach(pos => activeDeletePositionsByFile[target].add(pos));
+        }
+      });
+    }
+  });
+
+  // 2. Scan active data records and index by matchKey
+  interface ActiveRowRef {
+    row: Record<string, any>;
+    filePath: string;
+    rowPos: number;
+    partition: Record<string, any>;
+    dataFile: DataFileMetadata;
+  }
+
+  const activeRowsByKey: Map<any, ActiveRowRef> = new Map();
+  manifestList.forEach(m => {
+    const doc = state.manifestFiles[m.manifest_path];
+    if (!doc || doc.content === 1) return;
+
+    doc.entries.forEach(e => {
+      if (e.status === 2) return;
+      const rows = e.data_file.rows_data || [];
+      const delPositions = activeDeletePositionsByFile[e.data_file.file_path] || new Set();
+
+      rows.forEach((row, idx) => {
+        if (!delPositions.has(idx)) {
+          const keyVal = row[matchKey];
+          if (keyVal !== undefined && keyVal !== null) {
+            activeRowsByKey.set(String(keyVal), {
+              row,
+              filePath: e.data_file.file_path,
+              rowPos: idx,
+              partition: e.data_file.partition,
+              dataFile: e.data_file
+            });
+          }
+        }
+      });
+    });
+  });
+
+  // 3. Partition incoming source records into Matched (Updates) and Unmatched (Inserts)
+  const matchedUpdates: Array<{ existingRef: ActiveRowRef; updatedRow: Record<string, any> }> = [];
+  const unmatchedInserts: Record<string, any>[] = [];
+
+  sourceRecords.forEach(src => {
+    const srcKey = src[matchKey];
+    if (srcKey !== undefined && srcKey !== null && activeRowsByKey.has(String(srcKey))) {
+      const existing = activeRowsByKey.get(String(srcKey))!;
+      matchedUpdates.push({
+        existingRef: existing,
+        updatedRow: { ...existing.row, ...src }
+      });
+    } else {
+      unmatchedInserts.push(src);
+    }
+  });
+
+  // If nothing matched, simply append the unmatched inserts
+  if (matchedUpdates.length === 0) {
+    return appendRecords(
+      state,
+      unmatchedInserts,
+      commitMsg || `MERGE INTO: Inserted ${unmatchedInserts.length} new record(s) (no matches on ${matchKey})`
+    );
+  }
+
+  const newSequenceNumber = currentMetadata['last-sequence-number'] + 1;
+  const newSnapshotId = generateSnapshotId();
+  const parentSnapshotId = currentMetadata['current-snapshot-id'];
+  const versionNum = Object.keys(state.metadataHistory).length + 1;
+  const newMetadataLocation = `${currentMetadata.location}/metadata/v${versionNum}.metadata.json`;
+
+  const newStorageObjects: Record<string, StorageObject> = {};
+  const newManifestListEntries: ManifestListEntry[] = [];
+  let addedDataFilesCount = 0;
+  let addedDeleteFilesCount = 0;
+  let deletedDataFilesCount = 0;
+
+  if (mode === 'mor') {
+    // --- MODE: MERGE-ON-READ (MoR) ---
+    // A. Create positional delete files targeting matched rows
+    const deleteTargets: Record<string, { dataFile: DataFileMetadata; positions: number[]; rows: Record<string, any>[] }> = {};
+    matchedUpdates.forEach(({ existingRef }) => {
+      if (!deleteTargets[existingRef.filePath]) {
+        deleteTargets[existingRef.filePath] = {
+          dataFile: existingRef.dataFile,
+          positions: [],
+          rows: []
+        };
+      }
+      deleteTargets[existingRef.filePath].positions.push(existingRef.rowPos);
+      deleteTargets[existingRef.filePath].rows.push(existingRef.row);
+    });
+
+    const newDeleteManifestEntries: ManifestEntry[] = [];
+    Object.entries(deleteTargets).forEach(([dataFilePath, target], idx) => {
+      const delUuid = Math.random().toString(36).substring(2, 9);
+      const deleteFilePath = `${currentMetadata.location}/data/deletes/merge-del-${idx}-${delUuid}.parquet`;
+      const deleteFileSize = 1024 + target.positions.length * 32;
+
+      const deleteFileMeta: DataFileMetadata = {
+        content: 1, // POSITION_DELETES
+        file_path: deleteFilePath,
+        file_format: 'PARQUET',
+        partition: target.dataFile.partition,
+        record_count: target.positions.length,
+        file_size_in_bytes: deleteFileSize,
+        column_sizes: { 2147483546: 128, 2147483545: 64 },
+        value_counts: { 2147483546: target.positions.length },
+        null_value_counts: { 2147483546: 0, 2147483545: 0 },
+        lower_bounds: {},
+        upper_bounds: {},
+        referenced_data_file: dataFilePath,
+        delete_positions: target.positions,
+        rows_data: target.rows
+      };
+
+      newDeleteManifestEntries.push({
+        status: 1, // ADDED
+        snapshot_id: newSnapshotId,
+        sequence_number: newSequenceNumber,
+        data_file: deleteFileMeta
+      });
+
+      newStorageObjects[deleteFilePath] = {
+        uri: deleteFilePath,
+        type: 'delete',
+        sizeBytes: deleteFileSize,
+        createdAt: Date.now(),
+        isOrphan: false,
+        referencedBySnapshots: [newSnapshotId]
+      };
+      addedDeleteFilesCount++;
+    });
+
+    // Create Delete Manifest File
+    const delManifestUuid = Math.random().toString(36).substring(2, 9);
+    const delManifestPath = `${currentMetadata.location}/metadata/${delManifestUuid}-merge-delete-m0.avro`;
+    const delManifestDoc: ManifestFileDocument = {
+      path: delManifestPath,
+      schema_id: currentMetadata['current-schema-id'],
+      partition_spec_id: currentMetadata['default-spec-id'],
+      content: 1,
+      entries: newDeleteManifestEntries
+    };
+    const delManifestSize = 2048 + newDeleteManifestEntries.length * 256;
+
+    newStorageObjects[delManifestPath] = {
+      uri: delManifestPath,
+      type: 'manifest',
+      sizeBytes: delManifestSize,
+      createdAt: Date.now(),
+      isOrphan: false,
+      referencedBySnapshots: [newSnapshotId]
+    };
+    state.manifestFiles[delManifestPath] = delManifestDoc;
+
+    newManifestListEntries.push({
+      manifest_path: delManifestPath,
+      manifest_length: delManifestSize,
+      partition_spec_id: currentMetadata['default-spec-id'],
+      content: 1,
+      sequence_number: newSequenceNumber,
+      min_sequence_number: newSequenceNumber,
+      added_snapshot_id: newSnapshotId,
+      added_data_files_count: 0,
+      existing_data_files_count: 0,
+      deleted_data_files_count: 0,
+      added_rows_count: 0,
+      existing_rows_count: 0,
+      deleted_rows_count: matchedUpdates.length,
+      partitions: {}
+    });
+
+    // B. Write new Parquet data file(s) containing updated rows + inserted rows
+    const combinedNewRows = [...matchedUpdates.map(m => m.updatedRow), ...unmatchedInserts];
+    const partitionBuckets: Record<string, { partitionMap: Record<string, any>; rows: Record<string, any>[] }> = {};
+
+    combinedNewRows.forEach(row => {
+      const partMap = extractPartitionValues(row, partitionSpec.fields, currentSchema.fields);
+      const key = Object.entries(partMap).map(([k, v]) => `${k}=${v}`).join('/') || 'unpartitioned';
+      if (!partitionBuckets[key]) {
+        partitionBuckets[key] = { partitionMap: partMap, rows: [] };
+      }
+      partitionBuckets[key].rows.push(row);
+    });
+
+    const newDataManifestEntries: ManifestEntry[] = [];
+    const createdDataFiles: DataFileMetadata[] = [];
+
+    Object.entries(partitionBuckets).forEach(([partKey, bucket], idx) => {
+      const fileUuid = Math.random().toString(36).substring(2, 9);
+      const filePath = `${currentMetadata.location}/data/${partKey}/merge-${idx}-${fileUuid}.parquet`;
+      const stats = computeColumnStats(bucket.rows, currentSchema.fields);
+
+      const dataFile: DataFileMetadata = {
+        content: 0,
+        file_path: filePath,
+        file_format: 'PARQUET',
+        partition: bucket.partitionMap,
+        record_count: bucket.rows.length,
+        file_size_in_bytes: stats.file_size_in_bytes,
+        column_sizes: stats.column_sizes,
+        value_counts: stats.value_counts,
+        null_value_counts: stats.null_value_counts,
+        lower_bounds: stats.lower_bounds,
+        upper_bounds: stats.upper_bounds,
+        rows_data: bucket.rows
+      };
+
+      createdDataFiles.push(dataFile);
+      addedDataFilesCount++;
+
+      newDataManifestEntries.push({
+        status: 1, // ADDED
+        snapshot_id: newSnapshotId,
+        sequence_number: newSequenceNumber,
+        data_file: dataFile
+      });
+
+      newStorageObjects[filePath] = {
+        uri: filePath,
+        type: 'data',
+        sizeBytes: stats.file_size_in_bytes,
+        createdAt: Date.now(),
+        isOrphan: false,
+        referencedBySnapshots: [newSnapshotId]
+      };
+    });
+
+    // Create Data Manifest File
+    const dataManifestUuid = Math.random().toString(36).substring(2, 9);
+    const dataManifestPath = `${currentMetadata.location}/metadata/${dataManifestUuid}-merge-data-m0.avro`;
+    const dataManifestDoc: ManifestFileDocument = {
+      path: dataManifestPath,
+      schema_id: currentSchema['schema-id'],
+      partition_spec_id: partitionSpec['spec-id'],
+      content: 0,
+      entries: newDataManifestEntries
+    };
+    const dataManifestPartSummaries = computeManifestPartitionSummaries(createdDataFiles, partitionSpec.fields);
+    const dataManifestSize = 2048 + newDataManifestEntries.length * 256;
+
+    newStorageObjects[dataManifestPath] = {
+      uri: dataManifestPath,
+      type: 'manifest',
+      sizeBytes: dataManifestSize,
+      createdAt: Date.now(),
+      isOrphan: false,
+      referencedBySnapshots: [newSnapshotId]
+    };
+    state.manifestFiles[dataManifestPath] = dataManifestDoc;
+
+    newManifestListEntries.push({
+      manifest_path: dataManifestPath,
+      manifest_length: dataManifestSize,
+      partition_spec_id: partitionSpec['spec-id'],
+      content: 0,
+      sequence_number: newSequenceNumber,
+      min_sequence_number: newSequenceNumber,
+      added_snapshot_id: newSnapshotId,
+      added_data_files_count: createdDataFiles.length,
+      existing_data_files_count: 0,
+      deleted_data_files_count: 0,
+      added_rows_count: combinedNewRows.length,
+      existing_rows_count: 0,
+      deleted_rows_count: 0,
+      partitions: dataManifestPartSummaries
+    });
+
+    // Reuse existing data manifests with O(1) reuse
+    manifestList.forEach(m => {
+      newManifestListEntries.push({
+        ...m,
+        reused_from_snapshot_id: m.added_snapshot_id
+      });
+      if (state.storageObjects[m.manifest_path]) {
+        state.storageObjects[m.manifest_path].referencedBySnapshots.push(newSnapshotId);
+      }
+    });
+
+  } else {
+    // --- MODE: COPY-ON-WRITE (CoW) ---
+    // Rewrites files containing matched rows with the updated rows, and appends unmatched rows
+    const impactedFilePaths = new Set(matchedUpdates.map(m => m.existingRef.filePath));
+    const matchedUpdatesByFile: Record<string, Record<string, any>[]> = {};
+    const matchedOriginalRowPosByFile: Record<string, Set<number>> = {};
+
+    matchedUpdates.forEach(({ existingRef, updatedRow }) => {
+      if (!matchedUpdatesByFile[existingRef.filePath]) {
+        matchedUpdatesByFile[existingRef.filePath] = [];
+        matchedOriginalRowPosByFile[existingRef.filePath] = new Set();
+      }
+      matchedUpdatesByFile[existingRef.filePath].push(updatedRow);
+      matchedOriginalRowPosByFile[existingRef.filePath].add(existingRef.rowPos);
+    });
+
+    manifestList.forEach(mListEntry => {
+      const mDoc = state.manifestFiles[mListEntry.manifest_path];
+      if (!mDoc) return;
+
+      let manifestModified = false;
+      const localManifestEntries: ManifestEntry[] = [];
+
+      mDoc.entries.forEach(entry => {
+        if (entry.status === 2) return;
+
+        if (impactedFilePaths.has(entry.data_file.file_path)) {
+          manifestModified = true;
+          deletedDataFilesCount++;
+
+          // 1. Mark old file as DELETED (status: 2)
+          localManifestEntries.push({
+            status: 2,
+            snapshot_id: newSnapshotId,
+            sequence_number: newSequenceNumber,
+            data_file: entry.data_file
+          });
+
+          // 2. Rewrite surviving rows + updated rows
+          const rows = entry.data_file.rows_data || [];
+          const deletedPositions = matchedOriginalRowPosByFile[entry.data_file.file_path] || new Set();
+          const survivingRows = rows.filter((_, idx) => !deletedPositions.has(idx));
+          const updatedRows = matchedUpdatesByFile[entry.data_file.file_path] || [];
+          const rewrittenRows = [...survivingRows, ...updatedRows];
+
+          if (rewrittenRows.length > 0) {
+            addedDataFilesCount++;
+            const fileUuid = Math.random().toString(36).substring(2, 9);
+            const partKey = Object.entries(entry.data_file.partition)
+              .map(([k, v]) => `${k}=${v}`)
+              .join('/') || 'unpartitioned';
+            const newPath = `${currentMetadata.location}/data/${partKey}/merge-cow-${fileUuid}.parquet`;
+            const stats = computeColumnStats(rewrittenRows, currentSchema.fields);
+
+            const rewrittenDataFile: DataFileMetadata = {
+              content: 0,
+              file_path: newPath,
+              file_format: 'PARQUET',
+              partition: entry.data_file.partition,
+              record_count: rewrittenRows.length,
+              file_size_in_bytes: stats.file_size_in_bytes,
+              column_sizes: stats.column_sizes,
+              value_counts: stats.value_counts,
+              null_value_counts: stats.null_value_counts,
+              lower_bounds: stats.lower_bounds,
+              upper_bounds: stats.upper_bounds,
+              rows_data: rewrittenRows
+            };
+
+            localManifestEntries.push({
+              status: 1, // ADDED
+              snapshot_id: newSnapshotId,
+              sequence_number: newSequenceNumber,
+              data_file: rewrittenDataFile
+            });
+
+            newStorageObjects[newPath] = {
+              uri: newPath,
+              type: 'data',
+              sizeBytes: stats.file_size_in_bytes,
+              createdAt: Date.now(),
+              isOrphan: false,
+              referencedBySnapshots: [newSnapshotId]
+            };
+          }
+        } else {
+          // Untouched entry
+          localManifestEntries.push({
+            ...entry,
+            status: 0 // EXISTING
+          });
+        }
+      });
+
+      if (manifestModified) {
+        const newMUuid = Math.random().toString(36).substring(2, 9);
+        const newMPath = `${currentMetadata.location}/metadata/${newMUuid}-merge-cow-m.avro`;
+        const newMDoc: ManifestFileDocument = {
+          path: newMPath,
+          schema_id: mDoc.schema_id,
+          partition_spec_id: mDoc.partition_spec_id,
+          content: mDoc.content,
+          entries: localManifestEntries
+        };
+        const activeFiles = localManifestEntries.filter(e => e.status !== 2).map(e => e.data_file);
+        const summaries = computeManifestPartitionSummaries(activeFiles, partitionSpec.fields);
+        const size = 2048 + localManifestEntries.length * 256;
+
+        newStorageObjects[newMPath] = {
+          uri: newMPath,
+          type: 'manifest',
+          sizeBytes: size,
+          createdAt: Date.now(),
+          isOrphan: false,
+          referencedBySnapshots: [newSnapshotId]
+        };
+
+        newManifestListEntries.push({
+          manifest_path: newMPath,
+          manifest_length: size,
+          partition_spec_id: mDoc.partition_spec_id,
+          content: mDoc.content,
+          sequence_number: newSequenceNumber,
+          min_sequence_number: mListEntry.min_sequence_number,
+          added_snapshot_id: newSnapshotId,
+          added_data_files_count: localManifestEntries.filter(e => e.status === 1).length,
+          existing_data_files_count: localManifestEntries.filter(e => e.status === 0).length,
+          deleted_data_files_count: localManifestEntries.filter(e => e.status === 2).length,
+          added_rows_count: localManifestEntries.filter(e => e.status === 1).reduce((acc, e) => acc + e.data_file.record_count, 0),
+          existing_rows_count: localManifestEntries.filter(e => e.status === 0).reduce((acc, e) => acc + e.data_file.record_count, 0),
+          deleted_rows_count: localManifestEntries.filter(e => e.status === 2).reduce((acc, e) => acc + e.data_file.record_count, 0),
+          partitions: summaries
+        });
+
+        state.manifestFiles[newMPath] = newMDoc;
+      } else {
+        // Manifest was untouched, reuse it!
+        newManifestListEntries.push({
+          ...mListEntry,
+          reused_from_snapshot_id: mListEntry.added_snapshot_id
+        });
+        if (state.storageObjects[mListEntry.manifest_path]) {
+          state.storageObjects[mListEntry.manifest_path].referencedBySnapshots.push(newSnapshotId);
+        }
+      }
+    });
+
+    // If there were unmatched inserts, write them to a new Parquet file & manifest
+    if (unmatchedInserts.length > 0) {
+      const partitionBuckets: Record<string, { partitionMap: Record<string, any>; rows: Record<string, any>[] }> = {};
+      unmatchedInserts.forEach(row => {
+        const partMap = extractPartitionValues(row, partitionSpec.fields, currentSchema.fields);
+        const key = Object.entries(partMap).map(([k, v]) => `${k}=${v}`).join('/') || 'unpartitioned';
+        if (!partitionBuckets[key]) {
+          partitionBuckets[key] = { partitionMap: partMap, rows: [] };
+        }
+        partitionBuckets[key].rows.push(row);
+      });
+
+      const insertManifestEntries: ManifestEntry[] = [];
+      const insertDataFiles: DataFileMetadata[] = [];
+
+      Object.entries(partitionBuckets).forEach(([partKey, bucket], idx) => {
+        const fileUuid = Math.random().toString(36).substring(2, 9);
+        const filePath = `${currentMetadata.location}/data/${partKey}/merge-insert-${idx}-${fileUuid}.parquet`;
+        const stats = computeColumnStats(bucket.rows, currentSchema.fields);
+
+        const dataFile: DataFileMetadata = {
+          content: 0,
+          file_path: filePath,
+          file_format: 'PARQUET',
+          partition: bucket.partitionMap,
+          record_count: bucket.rows.length,
+          file_size_in_bytes: stats.file_size_in_bytes,
+          column_sizes: stats.column_sizes,
+          value_counts: stats.value_counts,
+          null_value_counts: stats.null_value_counts,
+          lower_bounds: stats.lower_bounds,
+          upper_bounds: stats.upper_bounds,
+          rows_data: bucket.rows
+        };
+
+        insertDataFiles.push(dataFile);
+        addedDataFilesCount++;
+
+        insertManifestEntries.push({
+          status: 1,
+          snapshot_id: newSnapshotId,
+          sequence_number: newSequenceNumber,
+          data_file: dataFile
+        });
+
+        newStorageObjects[filePath] = {
+          uri: filePath,
+          type: 'data',
+          sizeBytes: stats.file_size_in_bytes,
+          createdAt: Date.now(),
+          isOrphan: false,
+          referencedBySnapshots: [newSnapshotId]
+        };
+      });
+
+      const insertMUuid = Math.random().toString(36).substring(2, 9);
+      const insertMPath = `${currentMetadata.location}/metadata/${insertMUuid}-merge-inserts-m.avro`;
+      const insertMDoc: ManifestFileDocument = {
+        path: insertMPath,
+        schema_id: currentSchema['schema-id'],
+        partition_spec_id: partitionSpec['spec-id'],
+        content: 0,
+        entries: insertManifestEntries
+      };
+      const summaries = computeManifestPartitionSummaries(insertDataFiles, partitionSpec.fields);
+      const size = 2048 + insertManifestEntries.length * 256;
+
+      newStorageObjects[insertMPath] = {
+        uri: insertMPath,
+        type: 'manifest',
+        sizeBytes: size,
+        createdAt: Date.now(),
+        isOrphan: false,
+        referencedBySnapshots: [newSnapshotId]
+      };
+      state.manifestFiles[insertMPath] = insertMDoc;
+
+      newManifestListEntries.push({
+        manifest_path: insertMPath,
+        manifest_length: size,
+        partition_spec_id: partitionSpec['spec-id'],
+        content: 0,
+        sequence_number: newSequenceNumber,
+        min_sequence_number: newSequenceNumber,
+        added_snapshot_id: newSnapshotId,
+        added_data_files_count: insertDataFiles.length,
+        existing_data_files_count: 0,
+        deleted_data_files_count: 0,
+        added_rows_count: unmatchedInserts.length,
+        existing_rows_count: 0,
+        deleted_rows_count: 0,
+        partitions: summaries
+      });
+    }
+  }
+
+  // Create new Manifest List
+  const manifestListUuid = Math.random().toString(36).substring(2, 9);
+  const manifestListPath = `${currentMetadata.location}/metadata/snap-${newSnapshotId}-${manifestListUuid}.avro`;
+  const manifestListSize = 1024 + newManifestListEntries.length * 512;
+
+  newStorageObjects[manifestListPath] = {
+    uri: manifestListPath,
+    type: 'manifest-list',
+    sizeBytes: manifestListSize,
+    createdAt: Date.now(),
+    isOrphan: false,
+    referencedBySnapshots: [newSnapshotId]
+  };
+
+  const prevTotalDataFiles = parseInt(currentSnapshot.summary['total-data-files'] || '0', 10);
+  const prevTotalDeleteFiles = parseInt(currentSnapshot.summary['total-delete-files'] || '0', 10);
+  const prevTotalRecords = parseInt(currentSnapshot.summary['total-records'] || '0', 10);
+
+  const finalTotalDataFiles = prevTotalDataFiles - deletedDataFilesCount + addedDataFilesCount;
+  const finalTotalRecords = prevTotalRecords + unmatchedInserts.length;
+
+  const snapshotSummary: SnapshotSummary = {
+    operation: 'overwrite',
+    'added-records': String(matchedUpdates.length + unmatchedInserts.length),
+    'deleted-records': String(matchedUpdates.length),
+    'added-data-files': String(addedDataFilesCount),
+    'added-delete-files': String(addedDeleteFilesCount),
+    'deleted-data-files': String(deletedDataFilesCount),
+    'total-data-files': String(Math.max(0, finalTotalDataFiles)),
+    'total-delete-files': String(prevTotalDeleteFiles + addedDeleteFilesCount),
+    'total-records': String(Math.max(0, finalTotalRecords)),
+    'iceberg-version': '2.0.0',
+    engine: 'Apache Iceberg Engine Simulator',
+    'commit-desc': commitMsg || `MERGE INTO (${mode.toUpperCase()}): ${matchedUpdates.length} updated, ${unmatchedInserts.length} inserted on key '${matchKey}'`
+  };
+
+  const newSnapshot: IcebergSnapshot = {
+    'sequence-number': newSequenceNumber,
+    'snapshot-id': newSnapshotId,
+    'parent-snapshot-id': parentSnapshotId,
+    'timestamp-ms': Date.now(),
+    summary: snapshotSummary,
+    'manifest-list': manifestListPath,
+    'schema-id': currentSchema['schema-id']
+  };
+
+  const newMetadata: IcebergTableMetadataV2 = {
+    ...currentMetadata,
+    'last-sequence-number': newSequenceNumber,
+    'last-updated-ms': Date.now(),
+    'current-snapshot-id': newSnapshotId,
+    snapshots: [...currentMetadata.snapshots, newSnapshot],
+    'snapshot-log': [
+      ...currentMetadata['snapshot-log'],
+      { 'timestamp-ms': Date.now(), 'snapshot-id': newSnapshotId }
+    ],
+    'metadata-log': [
+      ...currentMetadata['metadata-log'],
+      { 'timestamp-ms': Date.now(), 'metadata-file': newMetadataLocation }
+    ]
+  };
+
+  newStorageObjects[newMetadataLocation] = {
+    uri: newMetadataLocation,
+    type: 'metadata',
+    sizeBytes: 2048 + newMetadata.snapshots.length * 400,
+    createdAt: Date.now(),
+    isOrphan: false,
+    referencedBySnapshots: [newSnapshotId]
+  };
+
+  const insight: ArchitecturalInsight = {
+    id: `insight-${Date.now()}-${newSnapshotId}`,
+    timestamp: Date.now(),
+    category: mode === 'mor' ? 'MOR' : 'COW',
+    title: `MERGE INTO (Upsert) Committed (${mode.toUpperCase()}): ${matchedUpdates.length} Updated, ${unmatchedInserts.length} Inserted`,
+    description: `Evaluated ${sourceRecords.length} incoming record(s) matching on key '${matchKey}'. Atomically committed snapshot S${newSequenceNumber}.`,
+    technicalDetails: mode === 'mor'
+      ? `MoR Merge wrote ${addedDeleteFilesCount} positional delete file(s) for updated rows and appended ${addedDataFilesCount} new Parquet file(s). Original files were not rewritten, providing high write throughput.`
+      : `CoW Merge rewrote ${addedDataFilesCount} Parquet data file(s) absorbing updates and deleted ${deletedDataFilesCount} old file(s), avoiding read-time delete reconciliation overhead.`,
+    metrics: {
+      filesCreated: addedDataFilesCount + addedDeleteFilesCount,
+      filesReused: newManifestListEntries.filter(m => m.reused_from_snapshot_id).length,
+      storageBytes: Object.values(newStorageObjects).reduce((a, b) => a + b.sizeBytes, 0)
+    }
+  };
+
+  return {
+    catalogPointer: {
+      ...state.catalogPointer,
+      currentMetadataLocation: newMetadataLocation
+    },
+    metadataHistory: {
+      ...state.metadataHistory,
+      [newMetadataLocation]: newMetadata
+    },
+    manifestLists: {
+      ...state.manifestLists,
+      [manifestListPath]: newManifestListEntries
+    },
+    manifestFiles: {
+      ...state.manifestFiles
+    },
+    storageObjects: {
+      ...state.storageObjects,
+      ...newStorageObjects
+    },
+    insights: [insight, ...state.insights]
+  };
+}
+
+/**
  * Perform Compaction / Data File Rewrites (Lakehouse Maintenance)
  * Merges small data files and absorbs positional deletes.
  */

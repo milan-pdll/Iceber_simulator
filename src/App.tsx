@@ -7,6 +7,7 @@ import {
   deleteRecordsMoR,
   deleteRecordsCoW,
   updateRecords,
+  mergeRecords,
   compactTable,
   expireSnapshots,
   purgeOrphanFiles
@@ -19,6 +20,7 @@ import { TimeTravelSlider } from './components/TimeTravelSlider';
 import { QueryVisualizer } from './components/QueryVisualizer';
 import { MetadataInspector } from './components/MetadataInspector';
 import { DataTableModal } from './components/DataTableModal';
+import { MetadataModal } from './components/MetadataModal';
 import { ArchitecturalLog } from './components/ArchitecturalLog';
 import { GuidedTour } from './components/GuidedTour';
 
@@ -64,6 +66,7 @@ export function App() {
   const [queryResult, setQueryResult] = useState<QueryExecutionResult | null>(null);
   const [isQueryDrawerOpen, setIsQueryDrawerOpen] = useState<boolean>(false);
   const [isDataModalOpen, setIsDataModalOpen] = useState<boolean>(false);
+  const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
   const [isTourOpen, setIsTourOpen] = useState<boolean>(false);
 
   // Scenario Loader
@@ -74,6 +77,7 @@ export function App() {
     setActiveSnapshotId(null);
     setSelectedNode(null);
     setQueryResult(null);
+    setIsMetadataModalOpen(false);
   }, []);
 
   // Table Reset
@@ -84,6 +88,7 @@ export function App() {
     setActiveSnapshotId(null);
     setSelectedNode(null);
     setQueryResult(null);
+    setIsMetadataModalOpen(false);
   }, [activeScenarioId]);
 
   // Append Mutation
@@ -107,6 +112,12 @@ export function App() {
   // Update
   const handleUpdate = useCallback((predicate: string, updates: Record<string, any>, mode: 'mor' | 'cow', msg?: string) => {
     setTableState(prev => updateRecords(prev, predicate, updates, mode, msg));
+    setActiveSnapshotId(null);
+  }, []);
+
+  // Merge (Upsert)
+  const handleMerge = useCallback((records: Record<string, any>[], matchKey: string, mode: 'mor' | 'cow', msg?: string) => {
+    setTableState(prev => mergeRecords(prev, records, matchKey, mode, msg));
     setActiveSnapshotId(null);
   }, []);
 
@@ -151,6 +162,7 @@ export function App() {
         onSelectScenario={handleSelectScenario}
         onResetTable={handleResetTable}
         onOpenDataModal={() => setIsDataModalOpen(true)}
+        onOpenMetadataModal={() => setIsMetadataModalOpen(true)}
         onOpenTour={() => setIsTourOpen(true)}
         isQueryDrawerOpen={isQueryDrawerOpen}
         onToggleQueryDrawer={() => setIsQueryDrawerOpen(!isQueryDrawerOpen)}
@@ -169,6 +181,7 @@ export function App() {
           onDeleteRecordsMoR={handleDeleteMoR}
           onDeleteRecordsCoW={handleDeleteCoW}
           onUpdateRecords={handleUpdate}
+          onMergeRecords={handleMerge}
           onCompactTable={handleCompact}
           onExpireSnapshots={handleExpireSnapshots}
           onPurgeOrphans={handlePurgeOrphans}
@@ -212,6 +225,7 @@ export function App() {
           selectedNode={selectedNode}
           onClose={() => setSelectedNode(null)}
           state={tableState}
+          onOpenFullMetadata={() => setIsMetadataModalOpen(true)}
         />
       </div>
 
@@ -222,6 +236,13 @@ export function App() {
       <DataTableModal
         isOpen={isDataModalOpen}
         onClose={() => setIsDataModalOpen(false)}
+        state={tableState}
+        activeSnapshotId={activeSnapshotId}
+      />
+
+      <MetadataModal
+        isOpen={isMetadataModalOpen}
+        onClose={() => setIsMetadataModalOpen(false)}
         state={tableState}
         activeSnapshotId={activeSnapshotId}
       />

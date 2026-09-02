@@ -21,11 +21,13 @@ interface MetadataInspectorProps {
   selectedNode: SelectedNodeType | null;
   onClose: () => void;
   state?: TableState;
+  onOpenFullMetadata?: () => void;
 }
 
 export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
   selectedNode,
-  onClose
+  onClose,
+  onOpenFullMetadata
 }) => {
   const [activeTab, setActiveTab] = useState<'summary' | 'json' | 'stats' | 'storage'>('summary');
   const [copied, setCopied] = useState<boolean>(false);
@@ -125,12 +127,25 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
           </div>
         </div>
 
-        <button
-          onClick={onClose}
-          className="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-        >
-          <X className="w-5 h-5" />
-        </button>
+        <div className="flex items-center space-x-2">
+          {onOpenFullMetadata && (selectedNode.type === 'metadata' || selectedNode.type === 'catalog') && (
+            <button
+              onClick={onOpenFullMetadata}
+              className="px-2.5 py-1 bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/40 rounded-lg text-xs font-semibold hover:bg-indigo-200 dark:hover:bg-indigo-500/30 flex items-center gap-1 transition-colors"
+              title="Open full table metadata explorer modal"
+            >
+              <FileJson className="w-3.5 h-3.5" />
+              <span>Full View</span>
+            </button>
+          )}
+
+          <button
+            onClick={onClose}
+            className="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
