@@ -56,8 +56,8 @@ export function App() {
     setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
   }, []);
 
-  // Primary Table State initialized with the E-Commerce scenario
-  const [activeScenarioId, setActiveScenarioId] = useState<string>('ecommerce');
+  // Primary Table State initialized with a clean empty table (Snapshot 0 only)
+  const [activeScenarioId, setActiveScenarioId] = useState<string>('clean');
   const [tableState, setTableState] = useState<TableState>(() => PRESET_SCENARIOS[0].buildInitialState());
 
   // Navigation & View States

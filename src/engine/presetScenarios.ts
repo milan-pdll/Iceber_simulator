@@ -18,6 +18,35 @@ export interface ScenarioDefinition {
 }
 
 export const PRESET_SCENARIOS: ScenarioDefinition[] = [
+  // ─── Default: Clean Empty Table ──────────────────────────────────────────────
+  {
+    id: 'clean',
+    name: 'Fresh Table (Empty Start)',
+    tagline: 'Start from Snapshot 0 — no data pre-loaded',
+    description: 'A brand-new Iceberg table with only Snapshot 0 committed. Add rows via the Append panel to begin building your own snapshot history.',
+    tableIdentifier: 'demo.events_log',
+    partitionStrategy: 'identity(category)',
+    defaultQueries: [
+      "SELECT * FROM demo.events_log WHERE category = 'web'",
+      "SELECT * FROM demo.events_log WHERE user_id = 1",
+      "SELECT * FROM demo.events_log WHERE amount >= 100"
+    ],
+    buildInitialState: () =>
+      initTableState(
+        'demo.events_log',
+        [
+          { id: 1, name: 'id',         type: 'long',      required: true  },
+          { id: 2, name: 'category',   type: 'string',    required: true  },
+          { id: 3, name: 'user_id',    type: 'long',      required: false },
+          { id: 4, name: 'amount',     type: 'double',    required: false },
+          { id: 5, name: 'created_at', type: 'timestamp', required: true  }
+        ],
+        [
+          { 'source-id': 2, 'field-id': 1000, name: 'category', transform: 'identity' }
+        ],
+        's3://demo-lakehouse/events/events_log'
+      )
+  },
   {
     id: 'ecommerce',
     name: 'E-Commerce Enterprise Orders',

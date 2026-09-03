@@ -55,10 +55,10 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   const [useJsonMode, setUseJsonMode] = useState<boolean>(false);
 
   // Delete & Update state
-  const [predicateInput, setPredicateInput] = useState<string>("dept = 'Engineering'");
+  const [predicateInput, setPredicateInput] = useState<string>("category = 'web'");
   const [deleteMode, setDeleteMode] = useState<'mor' | 'cow'>('mor');
-  const [updateField, setUpdateField] = useState<string>('customer_tier');
-  const [updateValue, setUpdateValue] = useState<string>('VIP-Platinum');
+  const [updateField, setUpdateField] = useState<string>('');
+  const [updateValue, setUpdateValue] = useState<string>('');
 
   // Merge (Upsert) state
   const [mergeMatchKey, setMergeMatchKey] = useState<string>('id');
@@ -148,10 +148,12 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   };
 
   const handleUpdate = () => {
+    const effectiveField = updateField || currentSchema.fields[0]?.name || '';
+    if (!effectiveField || !updateValue) return;
     const updateObj: Record<string, any> = {
-      [updateField]: updateValue
+      [effectiveField]: updateValue
     };
-    onUpdateRecords(predicateInput, updateObj, deleteMode, `Updated where ${predicateInput}`);
+    onUpdateRecords(predicateInput, updateObj, deleteMode, `Updated ${effectiveField} where ${predicateInput}`);
   };
 
   // Helper to extract active records for realistic Merge Upsert simulation
@@ -553,13 +555,15 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 Atomic UPDATE Transaction
               </span>
               <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="text"
-                  placeholder="Field (e.g. amount)"
-                  value={updateField}
+                <select
+                  value={updateField || currentSchema.fields[0]?.name || ''}
                   onChange={e => setUpdateField(e.target.value)}
                   className="px-2 py-1 bg-slate-50 dark:bg-[#0B0F17] border border-slate-300 dark:border-[#243048] rounded text-xs font-mono text-slate-800 dark:text-slate-200"
-                />
+                >
+                  {currentSchema.fields.map(f => (
+                    <option key={f.id} value={f.name}>{f.name} ({f.type})</option>
+                  ))}
+                </select>
                 <input
                   type="text"
                   placeholder="New Value"
