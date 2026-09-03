@@ -30,7 +30,12 @@ function generateUuid(): string {
 }
 
 /**
- * Initialize a brand-new Iceberg v2 Table
+ * Initialize a brand-new Iceberg v2 Table.
+ *
+ * Per Apache Iceberg Spec v2, table creation atomically commits an initial
+ * Snapshot 0 — an empty append snapshot with no data files. This gives the
+ * table a valid, addressable state before any records are ingested and enables
+ * time-travel back to the pristine empty-table state.
  */
 export function initTableState(
   tableIdentifier: string = 'db.events_analytics',
@@ -47,6 +52,38 @@ export function initTableState(
   warehouseLocation: string = 's3://lakehouse-warehouse/db/events_analytics'
 ): TableState {
   const tableUuid = generateUuid();
+  const now = Date.now();
+
+  // ── Snapshot 0: empty table state ────────────────────────────────────────
+  // Iceberg requires an initial snapshot to be committed as part of CREATE
+  // TABLE so the catalog always points to a valid, non-null snapshot.
+  const s0Id = generateSnapshotId();
+  const s0ManifestListUuid = Math.random().toString(36).substring(2, 9);
+  const s0ManifestListPath = `${warehouseLocation}/metadata/snap-${s0Id}-${s0ManifestListUuid}.avro`;
+  const s0ManifestListSize = 512; // Empty manifest list is minimal
+
+  const s0Snapshot: IcebergSnapshot = {
+    'sequence-number': 0,
+    'snapshot-id': s0Id,
+    'parent-snapshot-id': null,
+    'timestamp-ms': now,
+    summary: {
+      operation: 'append',
+      'added-data-files': '0',
+      'added-records': '0',
+      'total-data-files': '0',
+      'total-delete-files': '0',
+      'total-records': '0',
+      'changed-partition-count': '0',
+      'iceberg-version': '2.0.0',
+      engine: 'Apache Iceberg Engine Simulator',
+      'commit-desc': `Table '${tableIdentifier}' created — empty initial snapshot`
+    },
+    'manifest-list': s0ManifestListPath,
+    'schema-id': 0
+  };
+
+  // v1.metadata.json now has current-snapshot-id pointing to S0
   const v1Location = `${warehouseLocation}/metadata/v1.metadata.json`;
 
   const v1Metadata: IcebergTableMetadataV2 = {
@@ -54,7 +91,7 @@ export function initTableState(
     'table-uuid': tableUuid,
     location: warehouseLocation,
     'last-sequence-number': 0,
-    'last-updated-ms': Date.now(),
+    'last-updated-ms': now,
     'last-assigned-column-id': Math.max(...schemaFields.map(f => f.id)),
     'current-schema-id': 0,
     schemas: [
@@ -79,35 +116,23 @@ export function initTableState(
       'write.metadata.compression-codec': 'gzip',
       'history.expire.max-snapshot-age-ms': '604800000'
     },
-    'current-snapshot-id': null,
-    snapshots: [],
-    'snapshot-log': [],
+    'current-snapshot-id': s0Id,
+    snapshots: [s0Snapshot],
+    'snapshot-log': [
+      { 'timestamp-ms': now, 'snapshot-id': s0Id }
+    ],
     'metadata-log': [
-      {
-        'timestamp-ms': Date.now(),
-        'metadata-file': v1Location
-      }
+      { 'timestamp-ms': now, 'metadata-file': v1Location }
     ]
   };
 
-  const initialStorage: Record<string, StorageObject> = {
-    [v1Location]: {
-      uri: v1Location,
-      type: 'metadata',
-      sizeBytes: 1840,
-      createdAt: Date.now(),
-      isOrphan: false,
-      referencedBySnapshots: []
-    }
-  };
-
   const initialInsight: ArchitecturalInsight = {
-    id: `insight-${Date.now()}-init`,
-    timestamp: Date.now(),
+    id: `insight-${now}-init`,
+    timestamp: now,
     category: 'COMMIT',
-    title: 'Table Initialized with Iceberg Spec v2',
-    description: `Created table '${tableIdentifier}' with format-version 2. Catalog atomically tracks pointer '${v1Location}'.`,
-    technicalDetails: `Iceberg decouples the physical data files from catalog metadata. The catalog holds a single atomic pointer to the current metadata JSON file (${v1Location}). No snapshots exist yet.`
+    title: `Table Created — Snapshot 0 Committed (Empty State)`,
+    description: `Table '${tableIdentifier}' initialized with Iceberg Spec v2. An empty Snapshot 0 (S0) was atomically committed. The catalog pointer now references '${v1Location}'.`,
+    technicalDetails: `Per Iceberg Spec v2, CREATE TABLE immediately commits an initial empty append snapshot (S0). This gives the table a valid, non-null current-snapshot-id from the moment of creation, enabling time-travel back to the pristine empty state. The empty manifest list at '${s0ManifestListPath}' contains zero entries.`
   };
 
   return {
@@ -118,9 +143,29 @@ export function initTableState(
     metadataHistory: {
       [v1Location]: v1Metadata
     },
-    manifestLists: {},
+    manifestLists: {
+      // Empty manifest list for S0 — no data files yet
+      [s0ManifestListPath]: []
+    },
     manifestFiles: {},
-    storageObjects: initialStorage,
+    storageObjects: {
+      [v1Location]: {
+        uri: v1Location,
+        type: 'metadata',
+        sizeBytes: 2048,
+        createdAt: now,
+        isOrphan: false,
+        referencedBySnapshots: [s0Id]
+      },
+      [s0ManifestListPath]: {
+        uri: s0ManifestListPath,
+        type: 'manifest-list',
+        sizeBytes: s0ManifestListSize,
+        createdAt: now,
+        isOrphan: false,
+        referencedBySnapshots: [s0Id]
+      }
+    },
     insights: [initialInsight]
   };
 }
@@ -348,7 +393,7 @@ export function appendRecords(
     timestamp: Date.now(),
     category: reusedManifestCount > 0 ? 'REUSE' : 'COMMIT',
     title: `Snapshot S${newSequenceNumber} Committed (Append: +${addedRecords} rows)`,
-    description: `Added ${newManifestEntries.length} new Parquet file(s) across ${Object.keys(partitionBuckets).length} partition(s). ${reusedManifestCount > 0 ? `Reused ${reusedManifestCount} manifest file(s) without rewriting!` : 'First snapshot created.'}`,
+    description: `Added ${newManifestEntries.length} new Parquet file(s) across ${Object.keys(partitionBuckets).length} partition(s). ${reusedManifestCount > 0 ? `Reused ${reusedManifestCount} manifest file(s) without rewriting!` : 'First data snapshot — chained from the empty S0 initial state.'}`,
     technicalDetails: `Iceberg writes a new Manifest List (.avro) pointing to the new manifest file and existing manifests. Because unchanged manifests are not rewritten, commit complexity is O(1) with respect to total table data files.`,
     metrics: {
       filesCreated: newManifestEntries.length,
