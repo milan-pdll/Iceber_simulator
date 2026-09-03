@@ -19,7 +19,7 @@ export const DataTableModal: React.FC<DataTableModalProps> = ({
   if (!isOpen) return null;
 
   const currentMetadata = state.metadataHistory[state.catalogPointer.currentMetadataLocation];
-  const targetSnap = activeSnapshotId
+  const targetSnap = activeSnapshotId !== null
     ? currentMetadata?.snapshots.find(s => s['snapshot-id'] === activeSnapshotId)
     : (currentMetadata?.snapshots[currentMetadata.snapshots.length - 1] || null);
 

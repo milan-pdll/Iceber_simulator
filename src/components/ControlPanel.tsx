@@ -800,7 +800,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                         />
                         <span className="text-slate-800 dark:text-slate-200">S{snap['sequence-number']} ({snap.summary.operation})</span>
                       </div>
-                      <span className="text-slate-400 text-[10px]">{String(snap['snapshot-id']).slice(-6)}</span>
+                      <span className="text-slate-400 text-[10px]">ID: {snap['snapshot-id']}</span>
                     </label>
                   ))}
 

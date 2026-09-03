@@ -51,7 +51,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
 }) => {
   const currentMetadata = state.metadataHistory[state.catalogPointer.currentMetadataLocation];
   const totalSnapshots = currentMetadata ? currentMetadata.snapshots.length : 0;
-  const currentSnapshot = currentMetadata && activeSnapshotId
+  const currentSnapshot = currentMetadata && activeSnapshotId !== null
     ? currentMetadata.snapshots.find(s => s['snapshot-id'] === activeSnapshotId)
     : (currentMetadata?.snapshots[currentMetadata.snapshots.length - 1] || null);
 

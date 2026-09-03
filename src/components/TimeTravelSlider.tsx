@@ -21,7 +21,7 @@ export const TimeTravelSlider: React.FC<TimeTravelSliderProps> = ({
 
   const snapshots = currentMetadata.snapshots;
   const latestSnapshot = snapshots[snapshots.length - 1];
-  const effectiveSnapshotId = activeSnapshotId || latestSnapshot['snapshot-id'];
+  const effectiveSnapshotId = activeSnapshotId !== null ? activeSnapshotId : latestSnapshot['snapshot-id'];
   const currentIndex = snapshots.findIndex(s => s['snapshot-id'] === effectiveSnapshotId);
   const isTimeTraveling = activeSnapshotId !== null && activeSnapshotId !== latestSnapshot['snapshot-id'];
 

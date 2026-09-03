@@ -40,8 +40,10 @@ export function executeQuerySimulation(
   });
 
   // 2. Stage 2: Snapshot Resolution
-  const effectiveSnapshotId = targetSnapshotId || currentMetadata['current-snapshot-id'];
-  if (!effectiveSnapshotId) {
+  const effectiveSnapshotId = (targetSnapshotId !== undefined && targetSnapshotId !== null)
+    ? targetSnapshotId
+    : currentMetadata['current-snapshot-id'];
+  if (effectiveSnapshotId === null || effectiveSnapshotId === undefined) {
     traces.push({
       stage: 2,
       name: 'Snapshot Resolution',

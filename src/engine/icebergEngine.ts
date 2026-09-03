@@ -20,9 +20,8 @@ import {
   matchesRowPredicates
 } from './statsUtils';
 
-let idCounter = 1000;
-function generateSnapshotId(): number {
-  return Date.now() * 1000 + (idCounter++ % 1000);
+function generateSnapshotId(sequenceNumber: number = 0): number {
+  return sequenceNumber;
 }
 
 function generateUuid(): string {
@@ -57,7 +56,7 @@ export function initTableState(
   // ── Snapshot 0: empty table state ────────────────────────────────────────
   // Iceberg requires an initial snapshot to be committed as part of CREATE
   // TABLE so the catalog always points to a valid, non-null snapshot.
-  const s0Id = generateSnapshotId();
+  const s0Id = 0;
   const s0ManifestListUuid = Math.random().toString(36).substring(2, 9);
   const s0ManifestListPath = `${warehouseLocation}/metadata/snap-${s0Id}-${s0ManifestListUuid}.avro`;
   const s0ManifestListSize = 512; // Empty manifest list is minimal
@@ -185,7 +184,7 @@ export function appendRecords(
   const partitionSpec = currentMetadata['partition-specs'].find(p => p['spec-id'] === currentMetadata['default-spec-id'])!;
 
   const newSequenceNumber = currentMetadata['last-sequence-number'] + 1;
-  const newSnapshotId = generateSnapshotId();
+  const newSnapshotId = generateSnapshotId(newSequenceNumber);
   const parentSnapshotId = currentMetadata['current-snapshot-id'];
   const versionNum = Object.keys(state.metadataHistory).length + 1;
   const newMetadataLocation = `${currentMetadata.location}/metadata/v${versionNum}.metadata.json`;
@@ -298,7 +297,7 @@ export function appendRecords(
   ];
 
   let reusedManifestCount = 0;
-  if (parentSnapshotId) {
+  if (parentSnapshotId !== null && parentSnapshotId !== undefined) {
     const parentSnapshot = currentMetadata.snapshots.find(s => s['snapshot-id'] === parentSnapshotId);
     if (parentSnapshot && state.manifestLists[parentSnapshot['manifest-list']]) {
       const parentManifestList = state.manifestLists[parentSnapshot['manifest-list']];
@@ -333,7 +332,7 @@ export function appendRecords(
   };
 
   // 6. Compute Total Counts for Summary
-  const prevSnapshot = parentSnapshotId ? currentMetadata.snapshots.find(s => s['snapshot-id'] === parentSnapshotId) : null;
+  const prevSnapshot = (parentSnapshotId !== null && parentSnapshotId !== undefined) ? currentMetadata.snapshots.find(s => s['snapshot-id'] === parentSnapshotId) : null;
   const prevTotalDataFiles = prevSnapshot ? parseInt(prevSnapshot.summary['total-data-files'] || '0', 10) : 0;
   const prevTotalDeleteFiles = prevSnapshot ? parseInt(prevSnapshot.summary['total-delete-files'] || '0', 10) : 0;
   const prevTotalRecords = prevSnapshot ? parseInt(prevSnapshot.summary['total-records'] || '0', 10) : 0;
@@ -438,7 +437,7 @@ export function deleteRecordsMoR(
   commitMsg: string = 'Merge-on-Read (MoR) Positional Delete'
 ): TableState {
   const currentMetadata = state.metadataHistory[state.catalogPointer.currentMetadataLocation];
-  if (!currentMetadata['current-snapshot-id']) return state;
+  if (currentMetadata['current-snapshot-id'] === null) return state;
 
   const predicates = parseSimpleSqlPredicates(predicateStr);
   if (predicates.length === 0) return state;
@@ -482,7 +481,7 @@ export function deleteRecordsMoR(
   if (totalDeletedCount === 0) return state;
 
   const newSequenceNumber = currentMetadata['last-sequence-number'] + 1;
-  const newSnapshotId = generateSnapshotId();
+  const newSnapshotId = generateSnapshotId(newSequenceNumber);
   const parentSnapshotId = currentMetadata['current-snapshot-id'];
   const versionNum = Object.keys(state.metadataHistory).length + 1;
   const newMetadataLocation = `${currentMetadata.location}/metadata/v${versionNum}.metadata.json`;
@@ -696,7 +695,7 @@ export function deleteRecordsCoW(
   commitMsg: string = 'Copy-on-Write (CoW) Delete'
 ): TableState {
   const currentMetadata = state.metadataHistory[state.catalogPointer.currentMetadataLocation];
-  if (!currentMetadata['current-snapshot-id']) return state;
+  if (currentMetadata['current-snapshot-id'] === null) return state;
 
   const predicates = parseSimpleSqlPredicates(predicateStr);
   if (predicates.length === 0) return state;
@@ -711,7 +710,7 @@ export function deleteRecordsCoW(
   const newManifestListEntries: ManifestListEntry[] = [];
 
   const newSequenceNumber = currentMetadata['last-sequence-number'] + 1;
-  const newSnapshotId = generateSnapshotId();
+  const newSnapshotId = generateSnapshotId(newSequenceNumber);
   const parentSnapshotId = currentMetadata['current-snapshot-id'];
   const versionNum = Object.keys(state.metadataHistory).length + 1;
   const newMetadataLocation = `${currentMetadata.location}/metadata/v${versionNum}.metadata.json`;
@@ -975,7 +974,7 @@ export function updateRecords(
   commitMsg: string = 'Updated records'
 ): TableState {
   const currentMetadata = state.metadataHistory[state.catalogPointer.currentMetadataLocation];
-  if (!currentMetadata['current-snapshot-id']) return state;
+  if (currentMetadata['current-snapshot-id'] === null) return state;
 
   const predicates = parseSimpleSqlPredicates(predicateStr);
   if (predicates.length === 0) return state;
@@ -1043,7 +1042,7 @@ export function mergeRecords(
   if (!sourceRecords || sourceRecords.length === 0) return state;
 
   const currentMetadata = state.metadataHistory[state.catalogPointer.currentMetadataLocation];
-  if (!currentMetadata['current-snapshot-id'] || currentMetadata.snapshots.length === 0) {
+  if (currentMetadata['current-snapshot-id'] === null || currentMetadata.snapshots.length === 0) {
     // If no prior snapshot exists, all incoming records are treated as inserts
     return appendRecords(state, sourceRecords, commitMsg || `MERGE INTO: Initial table ingest (${sourceRecords.length} record(s))`);
   }
@@ -1055,20 +1054,22 @@ export function mergeRecords(
 
   // 1. Gather all active delete positions by file for MoR
   const activeDeletePositionsByFile: Record<string, Set<number>> = {};
-  manifestList.forEach(m => {
-    const doc = state.manifestFiles[m.manifest_path];
-    if (doc && doc.content === 1) {
-      doc.entries.forEach(e => {
-        if (e.status !== 2 && e.data_file.referenced_data_file && e.data_file.delete_positions) {
-          const target = e.data_file.referenced_data_file;
-          if (!activeDeletePositionsByFile[target]) {
-            activeDeletePositionsByFile[target] = new Set();
+  if (mode === 'mor') {
+    manifestList.forEach(m => {
+      const doc = state.manifestFiles[m.manifest_path];
+      if (doc && doc.content === 1) { // delete manifest
+        doc.entries.forEach(e => {
+          if (e.status !== 2 && e.data_file.referenced_data_file && e.data_file.delete_positions) {
+            const target = e.data_file.referenced_data_file;
+            if (!activeDeletePositionsByFile[target]) {
+              activeDeletePositionsByFile[target] = new Set();
+            }
+            e.data_file.delete_positions.forEach(pos => activeDeletePositionsByFile[target].add(pos));
           }
-          e.data_file.delete_positions.forEach(pos => activeDeletePositionsByFile[target].add(pos));
-        }
-      });
-    }
-  });
+        });
+      }
+    });
+  }
 
   // 2. Scan active data records and index by matchKey
   interface ActiveRowRef {
@@ -1133,7 +1134,7 @@ export function mergeRecords(
   }
 
   const newSequenceNumber = currentMetadata['last-sequence-number'] + 1;
-  const newSnapshotId = generateSnapshotId();
+  const newSnapshotId = generateSnapshotId(newSequenceNumber);
   const parentSnapshotId = currentMetadata['current-snapshot-id'];
   const versionNum = Object.keys(state.metadataHistory).length + 1;
   const newMetadataLocation = `${currentMetadata.location}/metadata/v${versionNum}.metadata.json`;
@@ -1710,7 +1711,7 @@ export function compactTable(
   commitMsg: string = 'Compaction / Rewrite Data Files'
 ): TableState {
   const currentMetadata = state.metadataHistory[state.catalogPointer.currentMetadataLocation];
-  if (!currentMetadata['current-snapshot-id']) return state;
+  if (currentMetadata['current-snapshot-id'] === null) return state;
 
   const currentSnapshot = currentMetadata.snapshots.find(s => s['snapshot-id'] === currentMetadata['current-snapshot-id'])!;
   const manifestList = state.manifestLists[currentSnapshot['manifest-list']] || [];
@@ -1771,7 +1772,7 @@ export function compactTable(
   });
 
   const newSequenceNumber = currentMetadata['last-sequence-number'] + 1;
-  const newSnapshotId = generateSnapshotId();
+  const newSnapshotId = generateSnapshotId(newSequenceNumber);
   const parentSnapshotId = currentMetadata['current-snapshot-id'];
   const versionNum = Object.keys(state.metadataHistory).length + 1;
   const newMetadataLocation = `${currentMetadata.location}/metadata/v${versionNum}.metadata.json`;

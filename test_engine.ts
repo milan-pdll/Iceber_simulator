@@ -27,9 +27,11 @@ const currentMeta = state.metadataHistory[state.catalogPointer.currentMetadataLo
 console.assert(currentMeta['format-version'] === 2, 'Must be format-version 2');
 console.assert(currentMeta.snapshots.length === 1, 'Initial snapshots should contain Snapshot 0');
 console.assert(currentMeta.snapshots[0]['sequence-number'] === 0, 'Initial snapshot must be S0');
+console.assert(currentMeta.snapshots[0]['snapshot-id'] === 0, 'Initial snapshot ID must be 0');
+console.assert(currentMeta.snapshots[0]['parent-snapshot-id'] === null, 'Initial parent snapshot ID must be null');
 console.assert(currentMeta.snapshots[0].summary.operation === 'append', 'S0 operation should be append');
 console.assert(currentMeta.snapshots[0].summary['total-records'] === '0', 'S0 total records must be 0');
-console.log('✅ Table initialized with format-version: 2, atomic catalog pointer, and initial Snapshot 0.');
+console.log('✅ Table initialized with format-version: 2, atomic catalog pointer, and initial Snapshot 0 (ID: 0).');
 
 // 2. Append Transaction & Manifest Creation
 console.log('\nTest 2: Append Transaction & Column Bounds Computation');
@@ -42,9 +44,11 @@ state = appendRecords(state, [
 let s1Meta = state.metadataHistory[state.catalogPointer.currentMetadataLocation];
 console.assert(s1Meta.snapshots.length === 2, 'Should have 2 snapshots (S0 and S1)');
 let s1Snap = s1Meta.snapshots.find(s => s['sequence-number'] === 1)!;
+console.assert(s1Snap['snapshot-id'] === 1, 'S1 snapshot-id must be 1');
+console.assert(s1Snap['parent-snapshot-id'] === 0, 'S1 parent-snapshot-id must be 0 (S0)');
 console.assert(s1Snap.summary.operation === 'append', 'Operation should be append');
 console.assert(s1Snap.summary['added-records'] === '3', 'Added records must be 3');
-console.log('✅ Snapshot S1 committed with computed column stats & partition distribution.');
+console.log('✅ Snapshot S1 committed (ID: 1, Parent: 0) with computed column stats & partition distribution.');
 
 // 3. Incremental Append with O(1) Manifest Reuse
 console.log('\nTest 3: O(1) Manifest Reuse across Snapshots');

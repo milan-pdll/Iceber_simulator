@@ -173,4 +173,41 @@ Subsequent ingest operations (appends, deletes, updates, merges) then chain from
 ### 🏁 Outcome
 Apache Iceberg Spec v2 Snapshot 0 initialization is fully implemented and verified. Tables now start with a valid Snapshot 0 empty state, and all subsequent operations create Snapshot 1, 2, 3... in strict accordance with the Iceberg specification.
 
+---
+
+## 🕒 Turn 6: 2026-09-03T10:09:00+05:45
+
+### 👤 User Request
+> `why snapshot id 0 have snapshot id the snapshot id is null as it is the top parent`
+> `fix this`
+
+### 🎯 Intent & Scope
+Configure clean integer numbering for snapshot IDs starting at 0 for Snapshot 0 (`snapshot-id: 0`, `parent-snapshot-id: null`), Snapshot 1 (`snapshot-id: 1`, `parent-snapshot-id: 0`), Snapshot 2 (`snapshot-id: 2`, `parent-snapshot-id: 1`), etc. Ensure all UI components, queries, mutations, and time-travel controls cleanly support `snapshot-id: 0` without falsy coercion bugs (`activeSnapshotId !== null`).
+
+### 🛠️ Actions Taken & Tool Executions
+1. **Engine Layer Updates ([`src/engine/icebergEngine.ts`](file:///e:/Dlytica/iceberg_sim/src/engine/icebergEngine.ts))**:
+   - Updated `generateSnapshotId(sequenceNumber: number = 0): number` to map clean sequential IDs (`0, 1, 2, ...`).
+   - In `initTableState()`: assigned `s0Id = 0` (`snapshot-id: 0`, `sequence-number: 0`, `parent-snapshot-id: null`).
+   - In `appendRecords()`, `deleteRecordsMoR()`, `deleteRecordsCoW()`, `updateRecords()`, `mergeRecords()`, and `compactTable()`: passed `newSequenceNumber` to `generateSnapshotId()`.
+   - Updated all falsy `!currentMetadata['current-snapshot-id']` checks to explicit `=== null` checks so that snapshot ID `0` is recognized as a valid active snapshot.
+   - Updated `parentSnapshotId` checks in `appendRecords()` to `parentSnapshotId !== null && parentSnapshotId !== undefined` to ensure S1 correctly links to parent S0.
+2. **Query Engine & UI Components Updates**:
+   - [`src/engine/querySimulator.ts`](file:///e:/Dlytica/iceberg_sim/src/engine/querySimulator.ts): fixed effective snapshot resolution so `targetSnapshotId !== undefined && targetSnapshotId !== null` is used instead of falsy `||`.
+   - [`src/components/TimeTravelSlider.tsx`](file:///e:/Dlytica/iceberg_sim/src/components/TimeTravelSlider.tsx): fixed `effectiveSnapshotId` check to avoid falling back to head when viewing Snapshot 0.
+   - [`src/components/DataTableModal.tsx`](file:///e:/Dlytica/iceberg_sim/src/components/DataTableModal.tsx): updated `targetSnap` lookup with `activeSnapshotId !== null`.
+   - [`src/components/LineageGraphCanvas.tsx`](file:///e:/Dlytica/iceberg_sim/src/components/LineageGraphCanvas.tsx): updated `targetSnap` lookup with `activeSnapshotId !== null`, cleaned up snapshot node sublabels to show `ID: {snap['snapshot-id']}`.
+   - [`src/components/HeaderNav.tsx`](file:///e:/Dlytica/iceberg_sim/src/components/HeaderNav.tsx): fixed `currentSnapshot` lookup for activeSnapshotId `0`.
+   - [`src/components/ControlPanel.tsx`](file:///e:/Dlytica/iceberg_sim/src/components/ControlPanel.tsx): updated snapshot ID display label.
+3. **Automated Verification & Build**:
+   - Updated [`test_engine.ts`](file:///e:/Dlytica/iceberg_sim/test_engine.ts) with assertions verifying:
+     - S0 has `snapshot-id: 0` and `parent-snapshot-id: null`.
+     - S1 has `snapshot-id: 1` and `parent-snapshot-id: 0`.
+   - Executed `npx tsx test_engine.ts` $\to$ **All 8 engine integration tests passed with 100% spec compliance**.
+   - Executed `npm run lint` (`oxlint`) $\to$ **0 errors, 0 warnings across all 23 files**.
+   - Executed `npm run build` $\to$ **Clean Vite production build in 646ms**.
+
+### 🏁 Outcome
+Snapshot IDs now strictly follow clean integer numbering starting at 0 for Snapshot 0, and all components seamlessly support Snapshot 0 time-travel and data inspection.
+
+
 

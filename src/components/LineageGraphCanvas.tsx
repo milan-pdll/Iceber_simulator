@@ -92,7 +92,7 @@ export const LineageGraphCanvas: React.FC<LineageGraphCanvasProps> = ({
     if (!currentMetadata) return { nodes: [], edges: [] };
 
     // Determine target snapshot to render
-    const targetSnap = activeSnapshotId
+    const targetSnap = activeSnapshotId !== null
       ? currentMetadata.snapshots.find(s => s['snapshot-id'] === activeSnapshotId)
       : (currentMetadata.snapshots[currentMetadata.snapshots.length - 1] || null);
 
@@ -173,7 +173,7 @@ export const LineageGraphCanvas: React.FC<LineageGraphCanvasProps> = ({
         id: `node-snap-${snap['snapshot-id']}`,
         type: 'snapshot',
         label: `Snapshot S${snap['sequence-number']}`,
-        sublabel: `ID: ${String(snap['snapshot-id']).slice(-6)}...`,
+        sublabel: `ID: ${snap['snapshot-id']}`,
         badge: snap.summary.operation.toUpperCase(),
         badgeColor: snap.summary.operation === 'append' ? 'bg-emerald-50 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/40' : 'bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/40',
         color: isTarget ? '#8B5CF6' : '#6B7280',
