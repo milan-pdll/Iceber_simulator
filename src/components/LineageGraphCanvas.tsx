@@ -237,13 +237,39 @@ export const LineageGraphCanvas: React.FC<LineageGraphCanvasProps> = ({
       });
     }
 
-    // Layer 4 & 5: Manifest Files & Data/Delete Files
-    const manifestSpacing = 160;
-    const totalM = Math.max(1, manifestListEntries.length);
-    const mStartY = Math.max(startY, mListNode.y - ((totalM - 1) * manifestSpacing) / 2);
+    // Layer 4 & 5: Two-pass layout to prevent overlapping
+    // Pass 1: Collect file counts per manifest and compute total Y budget needed
+    const FILE_H = nodeHeight;      // height of one file node
+    const FILE_GAP = 14;            // vertical gap between file nodes (within same manifest)
+    const MANIFEST_GAP = 24;        // extra vertical gap between manifest groups
+    const MANIFEST_H = nodeHeight;  // height of one manifest node
 
-    manifestListEntries.forEach((mEntry, mIdx) => {
+    type ManifestInfo = {
+      mEntry: typeof manifestListEntries[0];
+      mDoc: ReturnType<typeof Object.values<typeof state.manifestFiles[string]>> extends Array<infer T> ? T : any;
+      validEntries: NonNullable<typeof state.manifestFiles[string]>['entries'];
+      fileCount: number;            // number of live file nodes
+      blockHeight: number;          // total vertical space this manifest group needs
+    };
+
+    const manifestInfos: ManifestInfo[] = manifestListEntries.map(mEntry => {
       const mDoc = state.manifestFiles[mEntry.manifest_path];
+      const validEntries = mDoc ? mDoc.entries.filter(e => e.status !== 2) : [];
+      const fileCount = Math.max(1, validEntries.length);
+      const filesHeight = fileCount * FILE_H + (fileCount - 1) * FILE_GAP;
+      const blockHeight = Math.max(MANIFEST_H, filesHeight);
+      return { mEntry, mDoc, validEntries, fileCount, blockHeight };
+    });
+
+    const totalBlocksHeight = manifestInfos.reduce((sum, mi) => sum + mi.blockHeight, 0)
+      + Math.max(0, manifestInfos.length - 1) * MANIFEST_GAP;
+
+    // Position the entire block vertically centered around the manifest list node
+    const block0Y = mListNode.y + nodeHeight / 2 - totalBlocksHeight / 2;
+
+    let cursorY = block0Y;
+
+    manifestInfos.forEach(({ mEntry, mDoc, validEntries, fileCount, blockHeight }) => {
       const mFileName = getFilename(mEntry.manifest_path);
       const isReused = Boolean(mEntry.reused_from_snapshot_id);
       const isDeleteManifest = mEntry.content === 1;
@@ -261,15 +287,17 @@ export const LineageGraphCanvas: React.FC<LineageGraphCanvasProps> = ({
         }
       }
 
-      const mNodeY = mStartY + mIdx * manifestSpacing;
+      // Manifest node is vertically centered in its block
+      const mNodeY = cursorY + (blockHeight - MANIFEST_H) / 2;
+
       const mNode: GraphNode = {
         id: `node-manifest-${mEntry.manifest_path}`,
         type: 'manifest-file',
         label: isDeleteManifest ? 'Delete Manifest (.avro)' : 'Manifest File (.avro)',
         sublabel: mFileName,
         badge: isReused
-          ? `⚡ O(1) Reused (S${mEntry.added_snapshot_id ? String(mEntry.added_snapshot_id).slice(-4) : ''})`
-          : (isDeleteManifest ? 'DELETES (1)' : `${mDoc ? mDoc.entries.length : 0} Data File(s)`),
+          ? `⚡ O(1) Reused (S${mEntry.added_snapshot_id})`
+          : (isDeleteManifest ? 'DELETES (1)' : `${mDoc ? validEntries.length : 0} Data File(s)`),
         badgeColor: isReused
           ? 'bg-amber-50 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-500/40 font-bold'
           : (isDeleteManifest ? 'bg-rose-50 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-500/40' : 'bg-teal-50 dark:bg-teal-500/20 text-teal-800 dark:text-teal-300 border-teal-300 dark:border-teal-500/40'),
@@ -301,11 +329,10 @@ export const LineageGraphCanvas: React.FC<LineageGraphCanvasProps> = ({
         isPruned: pruneStatus === 'pruned-manifest'
       });
 
-      // Layer 5: Data Files / Delete Files inside this manifest
-      if (mDoc) {
-        const fileSpacing = 95;
-        const validEntries = mDoc.entries.filter(e => e.status !== 2);
-        const fileStartY = mNodeY - ((Math.max(1, validEntries.length) - 1) * fileSpacing) / 2;
+      // Layer 5: File nodes — stacked top-down within this block, no centering needed
+      if (mDoc && validEntries.length > 0) {
+        const filesHeight = fileCount * FILE_H + (fileCount - 1) * FILE_GAP;
+        const fileStartY = cursorY + (blockHeight - filesHeight) / 2;
 
         validEntries.forEach((entry, fIdx) => {
           const df = entry.data_file;
@@ -328,6 +355,8 @@ export const LineageGraphCanvas: React.FC<LineageGraphCanvasProps> = ({
             }
           }
 
+          const fileNodeY = fileStartY + fIdx * (FILE_H + FILE_GAP);
+
           const fileNode: GraphNode = {
             id: `node-file-${df.file_path}`,
             type: isPosDelete ? 'delete-file' : 'data-file',
@@ -339,7 +368,7 @@ export const LineageGraphCanvas: React.FC<LineageGraphCanvasProps> = ({
             borderColor: isPosDelete ? '#991B1B' : '#15803D',
             layerIndex: 5,
             x: startX + colSpacing * 5,
-            y: fileStartY + fIdx * fileSpacing,
+            y: fileNodeY,
             width: nodeWidth,
             height: nodeHeight,
             pruneStatus: filePruneStatus,
@@ -361,6 +390,8 @@ export const LineageGraphCanvas: React.FC<LineageGraphCanvasProps> = ({
           });
         });
       }
+
+      cursorY += blockHeight + MANIFEST_GAP;
     });
 
     return { nodes: generatedNodes, edges: generatedEdges };
