@@ -15,7 +15,8 @@ import {
   Trash,
   Sliders,
   FilePlus2,
-  GitMerge
+  GitMerge,
+  Sparkles
 } from 'lucide-react';
 import { formatBytes } from '../utils/formatting';
 
@@ -30,6 +31,7 @@ interface ControlPanelProps {
   onExpireSnapshots: (snapshotIds: number[]) => void;
   onPurgeOrphans: () => void;
   onInitCustomTable: (name: string, fields: SchemaField[], partFields: PartitionField[]) => void;
+  onOpenGCSimulator?: () => void;
 }
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
@@ -42,7 +44,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onCompactTable,
   onExpireSnapshots,
   onPurgeOrphans,
-  onInitCustomTable
+  onInitCustomTable,
+  onOpenGCSimulator
 }) => {
   const [activeTab, setActiveTab] = useState<'append' | 'delete' | 'merge' | 'maintenance' | 'schema'>('append');
 
@@ -751,6 +754,32 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 Optimize storage layouts, expire historical snapshots, and reclaim orphaned cloud storage bytes.
               </p>
             </div>
+
+            {/* Spotlight Banner: Snapshot Expiration & Orphan Cleanup Lab */}
+            {onOpenGCSimulator && (
+              <div className="p-3.5 rounded-2xl bg-gradient-to-br from-[#0052FF]/10 via-[#0052FF]/5 to-indigo-500/10 border border-[#0052FF]/30 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#0052FF] dark:text-[#4D7CFF] flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-[#0052FF] dark:text-[#4D7CFF]" />
+                    <span>GC & Retention Simulator Lab</span>
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[9px] bg-[#0052FF]/15 text-[#0052FF] dark:text-[#4D7CFF] border border-[#0052FF]/30 font-mono font-bold">
+                    Interactive
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                  Simulate daily operations, retention policies (<span className="font-mono text-[10px] bg-[#0052FF]/10 dark:bg-[#0052FF]/20 px-1 py-0.5 rounded">R_snap</span>, <span className="font-mono text-[10px] bg-[#0052FF]/10 dark:bg-[#0052FF]/20 px-1 py-0.5 rounded">R_orphan</span>), snapshot pinning, and orphan byte purging.
+                </p>
+                <button
+                  type="button"
+                  onClick={onOpenGCSimulator}
+                  className="btn-signature-primary w-full py-2 flex items-center justify-center space-x-1.5 text-xs font-semibold shadow-sm"
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span>Launch GC Simulator</span>
+                </button>
+              </div>
+            )}
 
             {/* Routine 1: Compaction */}
             <div className="card-signature p-3.5 space-y-2.5">

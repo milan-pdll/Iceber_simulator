@@ -24,6 +24,7 @@ import { MetadataModal } from './components/MetadataModal';
 import { ArchitecturalLog } from './components/ArchitecturalLog';
 import { GuidedTour } from './components/GuidedTour';
 import { IcebergChatbot } from './components/IcebergChatbot';
+import { GCSimulatorModal } from './components/GCSimulatorModal';
 
 export function App() {
   // Theme State: 'dark' | 'light'
@@ -69,6 +70,7 @@ export function App() {
   const [isDataModalOpen, setIsDataModalOpen] = useState<boolean>(false);
   const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
   const [isTourOpen, setIsTourOpen] = useState<boolean>(false);
+  const [isGCSimulatorOpen, setIsGCSimulatorOpen] = useState<boolean>(false);
 
   // Scenario Loader
   const handleSelectScenario = useCallback((scenario: ScenarioDefinition) => {
@@ -165,6 +167,7 @@ export function App() {
         onOpenDataModal={() => setIsDataModalOpen(true)}
         onOpenMetadataModal={() => setIsMetadataModalOpen(true)}
         onOpenTour={() => setIsTourOpen(true)}
+        onOpenGCSimulator={() => setIsGCSimulatorOpen(true)}
         isQueryDrawerOpen={isQueryDrawerOpen}
         onToggleQueryDrawer={() => setIsQueryDrawerOpen(!isQueryDrawerOpen)}
         isTimeTravelActive={activeSnapshotId !== null}
@@ -187,6 +190,7 @@ export function App() {
           onExpireSnapshots={handleExpireSnapshots}
           onPurgeOrphans={handlePurgeOrphans}
           onInitCustomTable={handleInitCustomTable}
+          onOpenGCSimulator={() => setIsGCSimulatorOpen(true)}
         />
 
         {/* Center: Main Visual Lineage Canvas & Time Travel Scrubber */}
@@ -251,6 +255,12 @@ export function App() {
       <GuidedTour
         isOpen={isTourOpen}
         onClose={() => setIsTourOpen(false)}
+      />
+
+      {/* GC & Retention Simulator Modal */}
+      <GCSimulatorModal
+        isOpen={isGCSimulatorOpen}
+        onClose={() => setIsGCSimulatorOpen(false)}
       />
 
       {/* IceBot — Floating Concept Chatbot */}

@@ -278,3 +278,48 @@ Integrate the **Minimalist Modern** design system across the entire application:
 ### 🏁 Outcome
 The entire simulator has been visually transformed according to the **Minimalist Modern** design system. The user experience is cohesive, distinct, and premium, while preserving all simulation capabilities.
 
+---
+
+## 🕒 Turn 9: 2026-09-04T13:45:00+05:45
+
+### 👤 User Request
+> Implement an interactive Snapshot Expiration & Orphan File Cleanup Simulator module for our Apache Iceberg visualizer web application.
+> Requirements & Logic Specification:
+> - Configuration Controls: $R_{snap}$ (Snapshot Retention Period in days, default 7), $R_{orphan}$ (Orphan File Retention Threshold in days, default 7), Workload Mode toggle (Pure Append vs. Row-Level Operations), Action Buttons ("Run Append / Operation" +1 Day, "Run Maintenance" Expire & Orphan Cleanup, Reset).
+> - State & Engine Rules: Daily operations ($D_n$, $S_n$), failed/uncommitted writes leaving uncommitted orphan files, `ExpireSnapshots` cutoff day = $\text{Current Day} - R_{snap}$ and purge files with zero active snapshot references, `DeleteOrphanFiles` cutoff day = $\text{Current Day} - R_{orphan}$ and purge uncommitted/untracked files $\le \text{File Cutoff}$.
+> - UI Visual Representation: Horizontal Snapshot Timeline with active vs expired cards and cutoff markers, Storage Matrix Table with physical files, active/historical snapshot pinning, and color-coded status badges, Log Output Panel with step-by-step execution details.
+
+### 🎯 Intent & Scope
+Build an isolated, interactive, high-fidelity simulator module allowing users to understand the lifecycle of Iceberg data files, snapshot pinning, expiration policies, and physical storage reclamation. The module is accessible from both the top navigation bar (`HeaderNav`) and the lakehouse maintenance tab (`ControlPanel`).
+
+### 🛠️ Actions Taken & Tool Executions
+1. **Engine Layer Implementation ([`src/engine/gcSimulator.ts`](file:///e:/Dlytica/iceberg_sim/src/engine/gcSimulator.ts))**:
+   - Designed complete type definitions: `GCSnapshot`, `GCStorageFile`, `GCLogEvent`, `GCState`.
+   - `createInitialGCState(mode)`: initializes a realistic Day 1-7 multi-day workload with initial snapshots ($S_1 \dots S_7$) and physical storage files.
+   - `advanceDayOperation(state)`: increments day by 1 ($D_n$), records a new snapshot $S_n$, handles Pure Append (cumulative file referencing) vs. Row-Level operations (rewriting old data files and unreferencing them), and generates crashed/uncommitted orphan files ($F_{orphan\_D_n}$) on disk.
+   - `runMaintenance(state)`:
+     - **Phase 1 (ExpireSnapshots)**: Computes snapshot cutoff day $\text{currentDay} - R_{snap}$. Expires snapshots created on or before cutoff day. Identifies all data files pinned by remaining active snapshots vs files only pinned by expired snapshots. Files with zero active references are marked `deleted` and physically purged from storage.
+     - **Phase 2 (DeleteOrphanFiles)**: Computes orphan age cutoff day $\text{currentDay} - R_{orphan}$. Evaluates all untracked physical files on storage. Orphans created on or before orphan cutoff day are marked `deleted` and physically purged; recent orphans are kept safely to protect concurrent uncommitted transactions.
+     - Emits structured chronological audit log events with reclaimed storage totals.
+   - `resetGCState(mode)`: resets the timeline to Day 7 baseline.
+2. **UI Component Implementation ([`src/components/GCSimulatorModal.tsx`](file:///e:/Dlytica/iceberg_sim/src/components/GCSimulatorModal.tsx))**:
+   - Adheres to the **Minimalist Modern** design system (Calistoga typography, Inter body, JetBrains Mono badges, Electric Blue gradient, `card-signature` surfaces).
+   - **Interactive Control Bar**: Sliders for $R_{snap}$ (1–30 days) and $R_{orphan}$ (1–30 days), workload toggle (Pure Append vs. Row-Level), simulated write failure toggle, "Advance Day (+1d)", "Run Maintenance", and "Reset".
+   - **Horizontal Snapshot Timeline**: Visual cards for each snapshot ($S_1, S_2 \dots$), active (emerald/blue) vs expired (struck-through slate), referenced files, and cutoff day markers with dynamic alerts.
+   - **Storage Inventory & Pinning Matrix Table**: Full disk inventory showing physical files, creation days, file sizes, active snapshot pinning, historical pinning, and color-coded status badges:
+     - 🔵 Active (Pinned by $\ge 1$ active snapshot)
+     - 🟡 Obsolete (Pinned only by expired snapshots, purged on maintenance)
+     - 🟠 Orphan (Untracked uncommitted file, candidate for orphan cleanup)
+     - 🔴 Deleted / Purged (Physically erased from cloud storage)
+   - **Real-Time Step-by-Step Maintenance Event Terminal**: Interactive console displaying chronological engine operations, expired snapshot counts, and reclaimed storage MB.
+3. **App Integration**:
+   - [`HeaderNav.tsx`](file:///e:/Dlytica/iceberg_sim/src/components/HeaderNav.tsx): Added "GC Simulator" button with `Archive` icon and Electric Blue hover state.
+   - [`ControlPanel.tsx`](file:///e:/Dlytica/iceberg_sim/src/components/ControlPanel.tsx): Added interactive GC Simulator launcher card in the Maintenance / Table Hygiene tab.
+   - [`App.tsx`](file:///e:/Dlytica/iceberg_sim/src/App.tsx): Added `isGCSimulatorOpen` modal state and wired trigger callbacks.
+4. **Verification & Testing**:
+   - `npm run lint` (`oxlint`): **0 errors, 0 warnings across all 26 files**.
+   - `npm run build` (`tsc -b && vite build`): **Compiled cleanly in 836ms with zero typing or bundle errors**.
+
+### 🏁 Outcome
+The Snapshot Expiration & Orphan File Cleanup Simulator is fully integrated and functional. Users can experiment with retention periods ($R_{snap}$, $R_{orphan}$), advance timeline days, observe snapshot expiration, track file unreferencing and uncommitted file leaks, and watch physical bytes reclaimed in real-time.
+

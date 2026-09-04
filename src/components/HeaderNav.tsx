@@ -12,7 +12,8 @@ import {
   CheckCircle2,
   ChevronDown,
   Sun,
-  Moon
+  Moon,
+  Archive
 } from 'lucide-react';
 import { TableState } from '../engine/types';
 import { PRESET_SCENARIOS, ScenarioDefinition } from '../engine/presetScenarios';
@@ -26,6 +27,7 @@ interface HeaderNavProps {
   onOpenDataModal: () => void;
   onOpenMetadataModal: () => void;
   onOpenTour: () => void;
+  onOpenGCSimulator: () => void;
   isQueryDrawerOpen: boolean;
   onToggleQueryDrawer: () => void;
   isTimeTravelActive: boolean;
@@ -42,6 +44,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   onOpenDataModal,
   onOpenMetadataModal,
   onOpenTour,
+  onOpenGCSimulator,
   isQueryDrawerOpen,
   onToggleQueryDrawer,
   isTimeTravelActive,
@@ -190,6 +193,15 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
         >
           <TableIcon className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
           <span className="hidden sm:inline">Table Data</span>
+        </button>
+
+        <button
+          onClick={onOpenGCSimulator}
+          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#0052FF]/10 to-[#4D7CFF]/15 border border-[#0052FF]/30 hover:border-[#0052FF] text-[#0052FF] dark:text-[#4D7CFF] text-xs font-semibold transition-all shadow-sm hover:shadow"
+          title="Snapshot Expiration & Orphan File Cleanup Simulator"
+        >
+          <Archive className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#4D7CFF]" />
+          <span className="hidden sm:inline">GC Simulator</span>
         </button>
 
         <button
