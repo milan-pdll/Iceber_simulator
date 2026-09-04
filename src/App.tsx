@@ -23,6 +23,7 @@ import { DataTableModal } from './components/DataTableModal';
 import { MetadataModal } from './components/MetadataModal';
 import { ArchitecturalLog } from './components/ArchitecturalLog';
 import { GuidedTour } from './components/GuidedTour';
+import { IcebergChatbot } from './components/IcebergChatbot';
 
 export function App() {
   // Theme State: 'dark' | 'light'
@@ -251,6 +252,9 @@ export function App() {
         isOpen={isTourOpen}
         onClose={() => setIsTourOpen(false)}
       />
+
+      {/* IceBot — Floating Concept Chatbot */}
+      <IcebergChatbot />
     </div>
   );
 }

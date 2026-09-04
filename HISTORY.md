@@ -209,5 +209,32 @@ Configure clean integer numbering for snapshot IDs starting at 0 for Snapshot 0 
 ### 🏁 Outcome
 Snapshot IDs now strictly follow clean integer numbering starting at 0 for Snapshot 0, and all components seamlessly support Snapshot 0 time-travel and data inspection.
 
+---
 
+## 🕒 Turn 7: 2026-09-04T12:54:31+05:45
 
+### 👤 User Request
+> `generata one chatbot for this application that answer question about the platform concepts used inside it so people dont felt lost`
+
+### 🎯 Intent & Scope
+Create a fully self-contained floating chatbot widget embedded directly in the app (no external API or backend required) that helps users understand:
+- Apache Iceberg Spec v2 concepts (Snapshots, MoR, CoW, Manifest Reuse, Query Pruning, Time-Travel, Compaction, MERGE INTO, Catalog, etc.)
+- Platform-specific features (Lineage Graph, Control Panel, Query Visualizer, Metadata Inspector, Guided Tour, Scenarios, etc.)
+
+### 🛠️ Actions Taken & Tool Executions
+1. **Research**: Fully read `README.md` and `HISTORY.md` to understand all Iceberg concepts, features, and platform history.
+2. **Knowledge Base Construction**: Built a 25-entry FAQ knowledge base covering every concept demonstrated in the simulator.
+3. **Component Implementation**: Created [`src/components/IcebergChatbot.tsx`](file:///e:/Dlytica/iceberg_sim/src/components/IcebergChatbot.tsx) featuring:
+   - Local fuzzy keyword-scoring search engine (no API calls)
+   - Inline markdown renderer (bold, code, tables, code blocks, bullet lists)
+   - Animated typing indicator with bouncing dots
+   - Quick prompt chips visible on fresh conversation
+   - Minimize / close / reset controls in header
+   - Unread message badge with bounce animation
+   - Glassmorphism dark UI with cyan/indigo gradient accents
+   - Smooth height transition between minimized and expanded states
+4. **Integration**: Imported and mounted `<IcebergChatbot />` at the end of `App.tsx` as a floating overlay.
+5. **Build Verification**: Executed `npm run build` → Clean compilation with zero TypeScript or Vite errors.
+
+### 🏁 Outcome
+IceBot chatbot widget successfully added to the application. It floats over every screen, answers natural-language questions about all Iceberg concepts and platform features, and guides users who feel lost exploring the simulator.
