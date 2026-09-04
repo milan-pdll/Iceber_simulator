@@ -73,7 +73,7 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
       case 'catalog':
         return 'Catalog Pointer';
       case 'metadata':
-        return 'Table Metadata JSON (v2)';
+        return 'Table Metadata JSON';
       case 'snapshot':
         return `Snapshot S${selectedNode.data['sequence-number']}`;
       case 'manifest-list':
@@ -90,35 +90,35 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
   const getNodeIcon = () => {
     switch (selectedNode.type) {
       case 'catalog':
-        return <Database className="w-5 h-5 text-amber-500 dark:text-amber-400" />;
+        return <Database className="w-5 h-5 text-amber-500" />;
       case 'metadata':
-        return <FileJson className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />;
+        return <FileJson className="w-5 h-5 text-[#0052FF] dark:text-[#4D7CFF]" />;
       case 'snapshot':
-        return <Camera className="w-5 h-5 text-purple-500 dark:text-purple-400" />;
+        return <Camera className="w-5 h-5 text-purple-500" />;
       case 'manifest-list':
-        return <ListTree className="w-5 h-5 text-sky-500 dark:text-sky-400" />;
+        return <ListTree className="w-5 h-5 text-sky-500" />;
       case 'manifest-file':
-        return <FileSpreadsheet className="w-5 h-5 text-teal-500 dark:text-teal-400" />;
+        return <FileSpreadsheet className="w-5 h-5 text-teal-500" />;
       case 'data-file':
-        return <FileCode className="w-5 h-5 text-emerald-500 dark:text-emerald-400" />;
+        return <FileCode className="w-5 h-5 text-emerald-500" />;
       case 'delete-file':
         return <FileX2 className="w-5 h-5 text-rose-500" />;
     }
   };
 
   return (
-    <div className="fixed inset-y-0 right-0 w-[480px] lg:w-[580px] bg-white/95 dark:bg-[#0E1525]/95 backdrop-blur-xl border-l border-slate-200 dark:border-[#243048] shadow-2xl flex flex-col z-50 select-none animate-in slide-in-from-right duration-200 transition-colors">
+    <div className="fixed inset-y-0 right-0 w-[480px] lg:w-[580px] bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-xl border-l border-slate-200 dark:border-[#334155] shadow-2xl flex flex-col z-50 select-none transition-colors duration-200">
       {/* Header */}
-      <div className="h-16 border-b border-slate-200 dark:border-[#243048] px-5 flex items-center justify-between bg-slate-100 dark:bg-[#111A2E]/80">
+      <div className="h-16 border-b border-slate-200 dark:border-[#334155] px-5 flex items-center justify-between bg-[#FAFAFA] dark:bg-[#1E293B]">
         <div className="flex items-center space-x-3">
-          <div className="p-2 rounded-xl bg-slate-200 dark:bg-[#162035] border border-slate-300 dark:border-slate-700/60 shadow-inner">
+          <div className="p-2 rounded-xl bg-[#0052FF]/10 dark:bg-[#0052FF]/20 border border-[#0052FF]/20 shadow-sm">
             {getNodeIcon()}
           </div>
           <div>
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+            <h3 className="text-base font-calistoga tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
               <span>{getTitle()}</span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-300 dark:border-sky-500/30 font-mono">
-                Iceberg Spec v2
+              <span className="section-label py-0.5 px-2 text-[10px]">
+                Spec v2
               </span>
             </h3>
             <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate block max-w-sm">
@@ -131,7 +131,7 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
           {onOpenFullMetadata && (selectedNode.type === 'metadata' || selectedNode.type === 'catalog') && (
             <button
               onClick={onOpenFullMetadata}
-              className="px-2.5 py-1 bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/40 rounded-lg text-xs font-semibold hover:bg-indigo-200 dark:hover:bg-indigo-500/30 flex items-center gap-1 transition-colors"
+              className="btn-signature-primary px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm"
               title="Open full table metadata explorer modal"
             >
               <FileJson className="w-3.5 h-3.5" />
@@ -141,20 +141,20 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
 
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+            className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-xl hover:bg-slate-100 dark:hover:bg-[#0F172A] transition-colors"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="grid grid-cols-4 bg-slate-100 dark:bg-[#0B0F17] border-b border-slate-200 dark:border-[#243048] px-2 pt-1 text-xs">
+      <div className="grid grid-cols-4 bg-slate-100 dark:bg-[#1E293B] border-b border-slate-200 dark:border-[#334155] px-2 pt-1 text-xs font-mono">
         <button
           onClick={() => setActiveTab('summary')}
-          className={`py-2 font-medium border-b-2 transition-all ${
+          className={`py-2.5 font-medium border-b-2 transition-all uppercase tracking-wider text-[11px] ${
             activeTab === 'summary'
-              ? 'border-sky-500 text-sky-700 dark:text-sky-300 font-semibold'
+              ? 'border-[#0052FF] text-[#0052FF] dark:text-[#4D7CFF] font-semibold'
               : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
           }`}
         >
@@ -162,33 +162,33 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
         </button>
         <button
           onClick={() => setActiveTab('json')}
-          className={`py-2 font-medium border-b-2 transition-all ${
+          className={`py-2.5 font-medium border-b-2 transition-all uppercase tracking-wider text-[11px] ${
             activeTab === 'json'
-              ? 'border-sky-500 text-sky-700 dark:text-sky-300 font-semibold'
+              ? 'border-[#0052FF] text-[#0052FF] dark:text-[#4D7CFF] font-semibold'
               : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
           }`}
         >
-          Raw Spec JSON
+          Raw Spec
         </button>
         <button
           onClick={() => setActiveTab('stats')}
-          className={`py-2 font-medium border-b-2 transition-all ${
+          className={`py-2.5 font-medium border-b-2 transition-all uppercase tracking-wider text-[11px] ${
             activeTab === 'stats'
-              ? 'border-sky-500 text-sky-700 dark:text-sky-300 font-semibold'
+              ? 'border-[#0052FF] text-[#0052FF] dark:text-[#4D7CFF] font-semibold'
               : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
           }`}
         >
-          Metrics & Bounds
+          Bounds
         </button>
         <button
           onClick={() => setActiveTab('storage')}
-          className={`py-2 font-medium border-b-2 transition-all ${
+          className={`py-2.5 font-medium border-b-2 transition-all uppercase tracking-wider text-[11px] ${
             activeTab === 'storage'
-              ? 'border-sky-500 text-sky-700 dark:text-sky-300 font-semibold'
+              ? 'border-[#0052FF] text-[#0052FF] dark:text-[#4D7CFF] font-semibold'
               : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
           }`}
         >
-          Object Storage
+          Storage
         </button>
       </div>
 
@@ -198,19 +198,19 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
         {activeTab === 'summary' && (
           <div className="space-y-4">
             {selectedNode.type === 'catalog' && (
-              <div className="bg-slate-50 dark:bg-[#131B2E] p-4 rounded-xl border border-slate-200 dark:border-[#243048] space-y-3">
-                <span className="text-xs font-bold text-amber-700 dark:text-amber-300">Catalog Decoupling Principles</span>
+              <div className="card-signature p-4 space-y-3">
+                <span className="text-xs font-bold text-amber-700 dark:text-amber-300 font-mono uppercase tracking-wider">Catalog Decoupling Principles</span>
                 <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
                   In Apache Iceberg, the catalog merely tracks the atomic pointer to the current table metadata JSON file. Unlike Hive Metastore (HMS), table transactions do not take database locks or require directory partition rewrites.
                 </p>
-                <div className="p-3 bg-white dark:bg-[#0B0F17] rounded-lg border border-slate-200 dark:border-[#243048] space-y-1.5 text-xs font-mono">
+                <div className="p-3 bg-slate-50 dark:bg-[#0F172A] rounded-xl border border-slate-200 dark:border-[#334155] space-y-1.5 text-xs font-mono">
                   <div className="flex justify-between">
-                    <span className="text-slate-500 dark:text-slate-400">Table Identifier:</span>
-                    <span className="text-amber-700 dark:text-amber-300">{selectedNode.data.tableIdentifier}</span>
+                    <span className="text-slate-400">Table Identifier:</span>
+                    <span className="text-amber-600 dark:text-amber-400 font-bold">{selectedNode.data.tableIdentifier}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-500 dark:text-slate-400">Current Metadata Pointer:</span>
-                    <span className="text-sky-700 dark:text-sky-300 truncate max-w-[240px]">{getFilename(selectedNode.data.location)}</span>
+                    <span className="text-slate-400">Current Metadata Pointer:</span>
+                    <span className="text-[#0052FF] dark:text-[#4D7CFF] font-semibold truncate max-w-[240px]">{getFilename(selectedNode.data.location)}</span>
                   </div>
                 </div>
               </div>
@@ -218,25 +218,25 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
 
             {selectedNode.type === 'metadata' && (
               <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-slate-50 dark:bg-[#131B2E] p-3 rounded-xl border border-slate-200 dark:border-[#243048]">
-                    <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">Format Version</span>
-                    <span className="text-sm font-bold text-indigo-700 dark:text-indigo-400 block font-mono">
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="card-signature p-3.5">
+                    <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">Format Version</span>
+                    <span className="text-sm font-bold text-[#0052FF] dark:text-[#4D7CFF] block font-mono mt-0.5">
                       v{selectedNode.data['format-version']} (Row-Level Deletes)
                     </span>
                   </div>
-                  <div className="bg-slate-50 dark:bg-[#131B2E] p-3 rounded-xl border border-slate-200 dark:border-[#243048]">
-                    <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">Last Sequence Number</span>
-                    <span className="text-sm font-bold text-emerald-700 dark:text-emerald-400 block font-mono">
+                  <div className="card-signature p-3.5">
+                    <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">Last Sequence Number</span>
+                    <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 block font-mono mt-0.5">
                       #{selectedNode.data['last-sequence-number']}
                     </span>
                   </div>
                 </div>
 
-                <div className="bg-slate-50 dark:bg-[#131B2E] p-4 rounded-xl border border-slate-200 dark:border-[#243048] space-y-2">
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Table UUID & Schema Catalog</span>
-                  <div className="p-2.5 bg-white dark:bg-[#0B0F17] rounded-lg text-xs font-mono text-slate-700 dark:text-slate-300 space-y-1">
-                    <div>UUID: <span className="text-sky-700 dark:text-sky-300">{selectedNode.data['table-uuid']}</span></div>
+                <div className="card-signature p-4 space-y-2">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 font-calistoga">Table UUID &amp; Schema Catalog</span>
+                  <div className="p-3 bg-slate-50 dark:bg-[#0F172A] rounded-xl border border-slate-200 dark:border-[#334155] text-xs font-mono text-slate-700 dark:text-slate-300 space-y-1.5">
+                    <div>UUID: <span className="text-[#0052FF] dark:text-[#4D7CFF]">{selectedNode.data['table-uuid']}</span></div>
                     <div>Location: <span className="text-slate-500 dark:text-slate-400 truncate block">{selectedNode.data.location}</span></div>
                     <div>Total Snapshots in History: <span className="text-amber-600 dark:text-amber-400 font-bold">{selectedNode.data.snapshots?.length}</span></div>
                   </div>
@@ -246,35 +246,35 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
 
             {selectedNode.type === 'snapshot' && (
               <div className="space-y-3">
-                <div className="bg-slate-50 dark:bg-[#131B2E] p-4 rounded-xl border border-slate-200 dark:border-[#243048] space-y-3">
+                <div className="card-signature p-4 space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-purple-700 dark:text-purple-300">
+                    <span className="text-xs font-bold text-purple-700 dark:text-purple-300 font-mono uppercase tracking-wider">
                       Snapshot #{selectedNode.data['sequence-number']}
                     </span>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 dark:bg-purple-500/20 text-purple-800 dark:text-purple-300 border border-purple-300 dark:border-purple-500/40 font-mono">
+                    <span className="section-label py-0.5 px-2 text-[10px]">
                       {selectedNode.data.summary?.operation.toUpperCase()}
                     </span>
                   </div>
 
                   <div className="grid grid-cols-3 gap-2 text-center text-xs font-mono">
-                    <div className="p-2 bg-white dark:bg-[#0B0F17] rounded-lg border border-slate-200 dark:border-[#243048]">
-                      <span className="text-[10px] text-slate-500 dark:text-slate-400 block">Total Files</span>
-                      <span className="font-bold text-emerald-600 dark:text-emerald-400">{selectedNode.data.summary?.['total-data-files']}</span>
+                    <div className="p-2.5 bg-slate-50 dark:bg-[#0F172A] rounded-xl border border-slate-200 dark:border-[#334155]">
+                      <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Files</span>
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400 text-sm">{selectedNode.data.summary?.['total-data-files']}</span>
                     </div>
-                    <div className="p-2 bg-white dark:bg-[#0B0F17] rounded-lg border border-slate-200 dark:border-[#243048]">
-                      <span className="text-[10px] text-slate-500 dark:text-slate-400 block">Deletes</span>
-                      <span className="font-bold text-rose-600 dark:text-rose-400">{selectedNode.data.summary?.['total-delete-files'] || 0}</span>
+                    <div className="p-2.5 bg-slate-50 dark:bg-[#0F172A] rounded-xl border border-slate-200 dark:border-[#334155]">
+                      <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Deletes</span>
+                      <span className="font-bold text-rose-600 dark:text-rose-400 text-sm">{selectedNode.data.summary?.['total-delete-files'] || 0}</span>
                     </div>
-                    <div className="p-2 bg-white dark:bg-[#0B0F17] rounded-lg border border-slate-200 dark:border-[#243048]">
-                      <span className="text-[10px] text-slate-500 dark:text-slate-400 block">Total Records</span>
-                      <span className="font-bold text-sky-600 dark:text-sky-400">{selectedNode.data.summary?.['total-records']}</span>
+                    <div className="p-2.5 bg-slate-50 dark:bg-[#0F172A] rounded-xl border border-slate-200 dark:border-[#334155]">
+                      <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Records</span>
+                      <span className="font-bold text-[#0052FF] dark:text-[#4D7CFF] text-sm">{selectedNode.data.summary?.['total-records']}</span>
                     </div>
                   </div>
 
-                  <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 space-y-1">
+                  <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 space-y-1 pt-1 border-t border-slate-100 dark:border-[#334155]">
                     <div>Committed: {formatTimestamp(selectedNode.data['timestamp-ms'])}</div>
                     <div>Parent Snapshot: {selectedNode.data['parent-snapshot-id'] ? String(selectedNode.data['parent-snapshot-id']) : 'None (Table Root)'}</div>
-                    <div>Manifest List: <span className="text-sky-700 dark:text-sky-300">{getFilename(selectedNode.data['manifest-list'])}</span></div>
+                    <div>Manifest List: <span className="text-[#0052FF] dark:text-[#4D7CFF]">{getFilename(selectedNode.data['manifest-list'])}</span></div>
                   </div>
                 </div>
               </div>
@@ -282,24 +282,24 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
 
             {(selectedNode.type === 'data-file' || selectedNode.type === 'delete-file') && (
               <div className="space-y-3">
-                <div className="bg-slate-50 dark:bg-[#131B2E] p-4 rounded-xl border border-slate-200 dark:border-[#243048] space-y-2">
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Parquet Physical Properties</span>
-                  <div className="p-3 bg-white dark:bg-[#0B0F17] rounded-lg text-xs font-mono space-y-1.5 text-slate-700 dark:text-slate-300">
+                <div className="card-signature p-4 space-y-2.5">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 font-calistoga">Parquet Physical Properties</span>
+                  <div className="p-3 bg-slate-50 dark:bg-[#0F172A] rounded-xl border border-slate-200 dark:border-[#334155] text-xs font-mono space-y-1.5 text-slate-700 dark:text-slate-300">
                     <div className="flex justify-between">
-                      <span className="text-slate-500 dark:text-slate-400">File Format:</span>
+                      <span className="text-slate-400">File Format:</span>
                       <span className="text-emerald-600 dark:text-emerald-400 font-bold">{selectedNode.data.data_file?.file_format || 'PARQUET'}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-500 dark:text-slate-400">Record Count:</span>
+                      <span className="text-slate-400">Record Count:</span>
                       <span className="text-slate-900 dark:text-white font-bold">{selectedNode.data.data_file?.record_count}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-500 dark:text-slate-400">File Size:</span>
+                      <span className="text-slate-400">File Size:</span>
                       <span className="text-amber-600 dark:text-amber-400 font-bold">{formatBytes(selectedNode.data.data_file?.file_size_in_bytes || 0)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-500 dark:text-slate-400">Partition Key:</span>
-                      <span className="text-sky-700 dark:text-sky-300">{JSON.stringify(selectedNode.data.data_file?.partition || {})}</span>
+                      <span className="text-slate-400">Partition Key:</span>
+                      <span className="text-[#0052FF] dark:text-[#4D7CFF]">{JSON.stringify(selectedNode.data.data_file?.partition || {})}</span>
                     </div>
                   </div>
                 </div>
@@ -310,21 +310,21 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
 
         {/* ================= TAB 2: SPEC JSON ================= */}
         {activeTab === 'json' && (
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+              <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider">
                 Official Apache Iceberg Spec v2 Payload
               </span>
               <button
                 onClick={handleCopy}
-                className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-[#162035] hover:bg-sky-50 dark:hover:bg-sky-500/20 border border-slate-300 dark:border-[#243048] hover:border-sky-400 text-slate-800 dark:text-slate-200 hover:text-sky-600 dark:hover:text-sky-300 text-xs font-medium transition-all"
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-[#1E293B] hover:border-[#0052FF]/40 border border-slate-200 dark:border-[#334155] text-slate-800 dark:text-slate-200 text-xs font-medium transition-all shadow-sm"
               >
-                {copied ? <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copied ? 'Copied to Clipboard' : 'Copy JSON'}</span>
+                {copied ? <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-[#0052FF]" />}
+                <span>{copied ? 'Copied' : 'Copy JSON'}</span>
               </button>
             </div>
 
-            <div className="p-3.5 bg-slate-900 text-slate-100 border border-slate-700 rounded-xl font-mono text-xs overflow-x-auto max-h-[500px]">
+            <div className="p-4 bg-[#0F172A] text-slate-100 border border-slate-800 rounded-xl font-mono text-xs overflow-x-auto max-h-[500px] shadow-lg">
               <pre
                 className="leading-relaxed whitespace-pre font-mono"
                 dangerouslySetInnerHTML={{ __html: syntaxHighlightJson(jsonString) }}
@@ -336,17 +336,17 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
         {/* ================= TAB 3: COLUMN STATS & BOUNDS ================= */}
         {activeTab === 'stats' && (
           <div className="space-y-3">
-            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
-              Column Metrics & Min/Max Bound Encodings
+            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block font-calistoga">
+              Column Metrics &amp; Min/Max Bound Encodings
             </span>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
               Iceberg query engines inspect these lower and upper bounds during query planning to skip reading Parquet footers and chunks.
             </p>
 
             {selectedNode.data.data_file ? (
-              <div className="border border-slate-200 dark:border-[#243048] rounded-xl overflow-hidden bg-white dark:bg-[#0B0F17]">
+              <div className="border border-slate-200 dark:border-[#334155] rounded-xl overflow-hidden bg-white dark:bg-[#0F172A] shadow-sm">
                 <table className="w-full text-left text-xs font-mono">
-                  <thead className="bg-slate-100 dark:bg-[#121929] text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-[#243048]">
+                  <thead className="bg-slate-50 dark:bg-[#1E293B] text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-[#334155]">
                     <tr>
                       <th className="p-2.5">Field ID</th>
                       <th className="p-2.5">Lower Bound (Min)</th>
@@ -354,7 +354,7 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
                       <th className="p-2.5">Nulls</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
                     {Object.keys(selectedNode.data.data_file.value_counts || {}).map(fieldIdStr => {
                       const fId = parseInt(fieldIdStr, 10);
                       const lower = selectedNode.data.data_file.lower_bounds[fId];
@@ -362,8 +362,8 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
                       const nulls = selectedNode.data.data_file.null_value_counts[fId] || 0;
 
                       return (
-                        <tr key={fId} className="hover:bg-slate-50 dark:hover:bg-[#141C30]">
-                          <td className="p-2.5 font-bold text-sky-600 dark:text-sky-400">col_{fId}</td>
+                        <tr key={fId} className="hover:bg-slate-50 dark:hover:bg-[#1E293B]/50 transition-colors">
+                          <td className="p-2.5 font-bold text-[#0052FF] dark:text-[#4D7CFF]">col_{fId}</td>
                           <td className="p-2.5 text-emerald-600 dark:text-emerald-300">{lower !== undefined ? String(lower) : '-'}</td>
                           <td className="p-2.5 text-purple-600 dark:text-purple-300">{upper !== undefined ? String(upper) : '-'}</td>
                           <td className="p-2.5 text-slate-400">{nulls}</td>
@@ -374,7 +374,7 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
                 </table>
               </div>
             ) : (
-              <div className="p-4 bg-slate-100 dark:bg-[#121828] rounded-xl text-center text-xs text-slate-500 font-mono">
+              <div className="p-4 bg-white dark:bg-[#1E293B] rounded-xl border border-slate-200 dark:border-[#334155] text-center text-xs text-slate-400 font-mono">
                 Select a Data File or Manifest File to inspect column statistics.
               </div>
             )}
@@ -384,18 +384,18 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
         {/* ================= TAB 4: OBJECT STORAGE ================= */}
         {activeTab === 'storage' && (
           <div className="space-y-3">
-            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
+            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block font-calistoga">
               Virtual Cloud Storage Object (S3 / GCS)
             </span>
 
-            <div className="bg-slate-50 dark:bg-[#131B2E] p-4 rounded-xl border border-slate-200 dark:border-[#243048] space-y-2 text-xs font-mono">
-              <div className="flex items-center space-x-2 text-sky-600 dark:text-sky-400">
+            <div className="card-signature p-4 space-y-2.5 text-xs font-mono">
+              <div className="flex items-center space-x-2 text-[#0052FF] dark:text-[#4D7CFF]">
                 <HardDrive className="w-4 h-4" />
                 <span className="font-bold">Cloud Storage Lineage</span>
               </div>
-              <div className="p-2.5 bg-white dark:bg-[#0B0F17] rounded-lg text-slate-700 dark:text-slate-300 space-y-1">
+              <div className="p-3 bg-slate-50 dark:bg-[#0F172A] rounded-xl border border-slate-200 dark:border-[#334155] text-slate-700 dark:text-slate-300 space-y-1.5">
                 <div>Storage Class: <span className="text-emerald-600 dark:text-emerald-400 font-bold">Standard Object</span></div>
-                <div>Encryption: <span className="text-slate-500 dark:text-slate-400">SSE-S3 (AES-256)</span></div>
+                <div>Encryption: <span className="text-slate-400">SSE-S3 (AES-256)</span></div>
                 <div>Compression: <span className="text-amber-600 dark:text-amber-400">Snappy / Gzip</span></div>
               </div>
             </div>
@@ -407,4 +407,3 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
 };
 
 export default MetadataInspector;
-

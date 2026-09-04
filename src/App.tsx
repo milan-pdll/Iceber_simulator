@@ -155,7 +155,7 @@ export function App() {
   }, []);
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-slate-50 dark:bg-[#0B0F17] text-slate-900 dark:text-slate-100 overflow-hidden font-sans transition-colors duration-200">
+    <div className="h-screen w-screen flex flex-col bg-[#FAFAFA] dark:bg-[#0F172A] text-[#0F172A] dark:text-[#F8FAFC] overflow-hidden font-sans transition-colors duration-200">
       {/* Top Navigation Bar */}
       <HeaderNav
         state={tableState}

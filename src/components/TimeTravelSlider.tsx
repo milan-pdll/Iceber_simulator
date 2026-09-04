@@ -55,28 +55,30 @@ export const TimeTravelSlider: React.FC<TimeTravelSliderProps> = ({
   const currentSnapObj = snapshots[currentIndex] || latestSnapshot;
 
   return (
-    <div className="border-t border-slate-200 dark:border-[#243048] bg-white/95 dark:bg-[#0E1524]/95 backdrop-blur-md px-5 py-2.5 flex items-center justify-between z-20 transition-colors duration-200">
+    <div className="border-t border-slate-200 dark:border-[#334155] bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-md px-5 py-3 flex items-center justify-between z-20 transition-colors duration-200">
       {/* Left info */}
-      <div className="flex items-center space-x-3 min-w-[240px]">
-        <div className="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/30 text-indigo-600 dark:text-indigo-400">
+      <div className="flex items-center space-x-3.5 min-w-[260px]">
+        <div className="p-2 rounded-xl bg-[#0052FF]/10 border border-[#0052FF]/20 text-[#0052FF] dark:text-[#4D7CFF] shadow-sm">
           <History className="w-4 h-4" />
         </div>
         <div>
           <div className="flex items-center space-x-2">
-            <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+            <span className="text-xs font-bold text-slate-900 dark:text-slate-100 font-mono tracking-tight">
               Snapshot Time-Travel
             </span>
             {isTimeTraveling ? (
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40">
-                HISTORICAL VIEW (S{currentSnapObj['sequence-number']})
+              <span className="section-label border-amber-300 dark:border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 py-0.5 px-2 text-[10px]">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                <span>HISTORICAL S{currentSnapObj['sequence-number']}</span>
               </span>
             ) : (
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/40">
-                LIVE HEAD (v{currentMetadata['last-sequence-number']})
+              <span className="section-label border-emerald-300 dark:border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-500/10 py-0.5 px-2 text-[10px]">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                <span>LIVE HEAD (v{currentMetadata['last-sequence-number']})</span>
               </span>
             )}
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate">
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate mt-0.5">
             Commit: {currentSnapObj.summary['commit-desc'] || currentSnapObj.summary.operation.toUpperCase()} • {formatTimestamp(currentSnapObj['timestamp-ms'])}
           </div>
         </div>
@@ -87,7 +89,7 @@ export const TimeTravelSlider: React.FC<TimeTravelSliderProps> = ({
         <button
           onClick={handlePrev}
           disabled={currentIndex <= 0}
-          className="p-1 text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-[#1E293B] transition-colors"
           title="Previous Snapshot"
         >
           <SkipBack className="w-4 h-4" />
@@ -100,14 +102,14 @@ export const TimeTravelSlider: React.FC<TimeTravelSliderProps> = ({
             max={snapshots.length - 1}
             value={currentIndex}
             onChange={handleSliderChange}
-            className="w-full accent-sky-500 dark:accent-sky-400 h-1.5 bg-slate-200 dark:bg-[#1F2B42] rounded-lg cursor-pointer transition-all"
+            className="w-full accent-[#0052FF] dark:accent-[#4D7CFF] h-1.5 bg-slate-200 dark:bg-[#1E293B] rounded-lg cursor-pointer transition-all"
           />
           {/* Tick marks */}
           <div className="w-full flex justify-between px-1 mt-1 text-[10px] font-mono text-slate-400 dark:text-slate-500">
             {snapshots.map((s, idx) => (
               <span
                 key={s['snapshot-id']}
-                className={`cursor-pointer hover:text-sky-600 dark:hover:text-sky-300 ${idx === currentIndex ? 'text-sky-600 dark:text-sky-400 font-bold' : ''}`}
+                className={`cursor-pointer hover:text-[#0052FF] dark:hover:text-[#4D7CFF] transition-colors ${idx === currentIndex ? 'text-[#0052FF] dark:text-[#4D7CFF] font-bold' : ''}`}
                 onClick={() => onSelectSnapshot(s['snapshot-id'] === latestSnapshot['snapshot-id'] ? null : s['snapshot-id'])}
               >
                 S{s['sequence-number']}
@@ -119,7 +121,7 @@ export const TimeTravelSlider: React.FC<TimeTravelSliderProps> = ({
         <button
           onClick={handleNext}
           disabled={currentIndex >= snapshots.length - 1}
-          className="p-1 text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-[#1E293B] transition-colors"
           title="Next Snapshot"
         >
           <SkipForward className="w-4 h-4" />
@@ -131,10 +133,10 @@ export const TimeTravelSlider: React.FC<TimeTravelSliderProps> = ({
         {isTimeTraveling && (
           <button
             onClick={() => onSelectSnapshot(null)}
-            className="flex items-center space-x-1.5 px-3 py-1 rounded-lg bg-sky-50 dark:bg-sky-500/20 hover:bg-sky-100 dark:hover:bg-sky-500/30 border border-sky-300 dark:border-sky-400/50 text-sky-700 dark:text-sky-300 text-xs font-semibold transition-all shadow-sm"
+            className="btn-signature-primary flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold shadow-sm"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            <span>Return to Current Head</span>
+            <span>Return to Live Head</span>
           </button>
         )}
       </div>
@@ -143,4 +145,3 @@ export const TimeTravelSlider: React.FC<TimeTravelSliderProps> = ({
 };
 
 export default TimeTravelSlider;
-

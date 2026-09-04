@@ -2,9 +2,37 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --background: #FAFAFA;
+  --foreground: #0F172A;
+  --muted: #F1F5F9;
+  --muted-foreground: #64748B;
+  --accent: #0052FF;
+  --accent-secondary: #4D7CFF;
+  --accent-foreground: #FFFFFF;
+  --border: #E2E8F0;
+  --card: #FFFFFF;
+}
+
+.dark {
+  --background: #0F172A;
+  --foreground: #F8FAFC;
+  --muted: #1E293B;
+  --muted-foreground: #94A3B8;
+  --accent: #0052FF;
+  --accent-secondary: #4D7CFF;
+  --accent-foreground: #FFFFFF;
+  --border: #334155;
+  --card: #1E293B;
+}
+
 @layer base {
   body {
-    @apply font-sans bg-slate-50 text-slate-900 dark:bg-[#0B0F17] dark:text-slate-100 transition-colors duration-200;
+    @apply font-sans bg-[#FAFAFA] text-[#0F172A] dark:bg-[#0F172A] dark:text-[#F8FAFC] transition-colors duration-200;
+  }
+  
+  h1, h2, h3, .font-display {
+    font-family: 'Calistoga', Georgia, serif;
   }
 }
 
@@ -19,12 +47,12 @@
 }
 
 .dark ::-webkit-scrollbar-thumb {
-  background: rgba(56, 189, 248, 0.25);
+  background: rgba(77, 124, 255, 0.35);
   border-radius: 9999px;
 }
 
 .dark ::-webkit-scrollbar-thumb:hover {
-  background: rgba(56, 189, 248, 0.45);
+  background: rgba(77, 124, 255, 0.6);
 }
 
 /* Custom scrollbar for light mode */
@@ -38,35 +66,120 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(14, 165, 233, 0.4);
+  background: rgba(0, 82, 255, 0.3);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(14, 165, 233, 0.6);
+  background: rgba(0, 82, 255, 0.5);
 }
 
-/* Canvas dot grid background */
+/* Signature Minimalist Modern Utilities */
+.gradient-text {
+  background: linear-gradient(135deg, #0052FF 0%, #4D7CFF 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.gradient-accent-bg {
+  background: linear-gradient(135deg, #0052FF 0%, #4D7CFF 100%);
+}
+
+.btn-signature-primary {
+  background: linear-gradient(135deg, #0052FF 0%, #4D7CFF 100%);
+  color: #FFFFFF;
+  font-weight: 500;
+  border-radius: 0.75rem;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 14px rgba(0, 82, 255, 0.25);
+}
+
+.btn-signature-primary:hover {
+  transform: translateY(-1.5px);
+  box-shadow: 0 8px 24px rgba(0, 82, 255, 0.38);
+  filter: brightness(1.04);
+}
+
+.btn-signature-primary:active {
+  transform: scale(0.98);
+}
+
+.section-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(0, 82, 255, 0.25);
+  background: rgba(0, 82, 255, 0.05);
+  padding: 0.25rem 0.75rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: #0052FF;
+}
+
+.dark .section-label {
+  border-color: rgba(77, 124, 255, 0.35);
+  background: rgba(0, 82, 255, 0.12);
+  color: #4D7CFF;
+}
+
+.section-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 9999px;
+  background-color: #0052FF;
+}
+
+.dark .section-dot {
+  background-color: #4D7CFF;
+}
+
+.card-signature {
+  background-color: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 0.75rem;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.card-signature:hover {
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+}
+
+.dark .card-signature {
+  background-color: #1E293B;
+  border-color: #334155;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.dark .card-signature:hover {
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+}
+
+/* Canvas dot grid background with design system 32px spacing */
 .canvas-grid-pattern {
-  background-size: 24px 24px;
-  background-image: radial-gradient(circle, rgba(0, 0, 0, 0.09) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-image: radial-gradient(circle, rgba(15, 23, 42, 0.08) 1px, transparent 1px);
 }
 
 .dark .canvas-grid-pattern {
-  background-size: 24px 24px;
-  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-image: radial-gradient(circle, rgba(248, 250, 252, 0.07) 1px, transparent 1px);
 }
 
 /* Graph Node Pulse Effect */
 @keyframes activePulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.4);
+    box-shadow: 0 0 0 0 rgba(0, 82, 255, 0.5);
   }
   70% {
-    box-shadow: 0 0 0 10px rgba(56, 189, 248, 0);
+    box-shadow: 0 0 0 12px rgba(0, 82, 255, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0);
+    box-shadow: 0 0 0 0 rgba(0, 82, 255, 0);
   }
 }
 

@@ -98,14 +98,12 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         else if (f.name === 'customer_tier' || f.name === 'tier' || f.name === 'currency') row[f.name] = tier;
         else if (f.name === 'amount' || f.name === 'reading_val' || f.name === 'price') row[f.name] = amt;
         else if (f.name === 'created_at' || f.name === 'timestamp') row[f.name] = date;
-        else if (f.name === 'event_type') row[f.name] = 'transaction_commit';
-        else row[f.name] = `val_${i}`;
+        else row[f.name] = `${f.name}_val_${i + 1}`;
       });
-
       generated.push(row);
     }
 
-    onAppendRecords(generated, `Appended batch of ${count} record(s)`);
+    onAppendRecords(generated, `Ingested ${count} records via generator`);
   };
 
   const handleSingleAppend = (e: React.FormEvent) => {
@@ -114,34 +112,36 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
       try {
         const parsed = JSON.parse(customAppendJson);
         const arr = Array.isArray(parsed) ? parsed : [parsed];
-        onAppendRecords(arr, 'Appended custom JSON records');
+        onAppendRecords(arr, `Custom JSON Append (${arr.length} records)`);
+        setCustomAppendJson('');
       } catch (err) {
         alert('Invalid JSON: ' + (err as Error).message);
       }
-      return;
+    } else {
+      const row: Record<string, any> = {};
+      currentSchema.fields.forEach(f => {
+        const val = appendForm[f.name];
+        if (val !== undefined && val !== '') {
+          if (f.type === 'int' || f.type === 'long') row[f.name] = parseInt(val, 10);
+          else if (f.type === 'float' || f.type === 'double') row[f.name] = parseFloat(val);
+          else if (f.type === 'boolean') row[f.name] = val === 'true';
+          else row[f.name] = val;
+        } else {
+          if (f.type === 'int' || f.type === 'long') row[f.name] = 100 + Math.floor(Math.random() * 800);
+          else if (f.type === 'float' || f.type === 'double') row[f.name] = 99.99;
+          else if (f.name.includes('created') || f.name.includes('time')) row[f.name] = new Date().toISOString();
+          else row[f.name] = 'default_val';
+        }
+      });
+      onAppendRecords([row], `Single record append (id=${row.id || 'new'})`);
+      setAppendForm({});
     }
-
-    const row: Record<string, any> = {};
-    currentSchema.fields.forEach(f => {
-      let val = appendForm[f.name];
-      if (val === undefined || val === '') {
-        if (f.type === 'long' || f.type === 'int') val = Math.floor(Math.random() * 1000);
-        else if (f.type === 'double' || f.type === 'float') val = 100.0;
-        else if (f.type === 'timestamp') val = new Date().toISOString();
-        else val = `test_${f.name}`;
-      } else {
-        if (f.type === 'long' || f.type === 'int') val = parseInt(val, 10);
-        else if (f.type === 'double' || f.type === 'float') val = parseFloat(val);
-      }
-      row[f.name] = val;
-    });
-
-    onAppendRecords([row], `Appended record (${row.id ? `id: ${row.id}` : ''})`);
   };
 
   const handleDelete = () => {
+    if (!predicateInput.trim()) return;
     if (deleteMode === 'mor') {
-      onDeleteRecordsMoR(predicateInput, `MoR Positional Delete: ${predicateInput}`);
+      onDeleteRecordsMoR(predicateInput, `MoR Tombstone Delete: ${predicateInput}`);
     } else {
       onDeleteRecordsCoW(predicateInput, `CoW Rewrite Delete: ${predicateInput}`);
     }
@@ -254,18 +254,13 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
       }
     }
 
-    onMergeRecords(
-      records,
-      mergeMatchKey,
-      mergeMode,
-      `MERGE INTO: ${preset === 'quick' ? 'Quick Demo Upsert' : 'CDC Stream Batch'} (${records.length} records)`
-    );
+    onMergeRecords(records, mergeMatchKey, mergeMode, `MERGE INTO: Preset ${preset.toUpperCase()} (${records.length} records)`);
   };
 
   const handleCustomMergeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!mergeJsonInput.trim()) {
-      handleMergePreset('quick');
+      alert('Please enter a JSON array of records to merge.');
       return;
     }
     try {
@@ -283,26 +278,26 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     .reduce((acc, o) => acc + o.sizeBytes, 0);
 
   return (
-    <div className="h-full flex flex-col bg-slate-50 dark:bg-[#0F1626] border-r border-slate-200 dark:border-[#243048] w-80 lg:w-96 select-none shrink-0 transition-colors duration-200">
+    <div className="h-full flex flex-col bg-[#FAFAFA] dark:bg-[#0F172A] border-r border-slate-200 dark:border-[#334155] w-80 lg:w-96 select-none shrink-0 transition-colors duration-200">
       {/* Navigation Tabs */}
-      <div className="grid grid-cols-5 bg-slate-100 dark:bg-[#0B0F17] border-b border-slate-200 dark:border-[#243048] p-1 gap-1 text-[11px]">
+      <div className="grid grid-cols-5 bg-slate-100 dark:bg-[#1E293B] border-b border-slate-200 dark:border-[#334155] p-1.5 gap-1 text-[11px]">
         <button
           onClick={() => setActiveTab('append')}
-          className={`py-2 px-1 rounded-lg font-medium transition-all flex items-center justify-center space-x-1 ${
+          className={`py-2 px-1 rounded-xl font-medium transition-all flex items-center justify-center space-x-1 ${
             activeTab === 'append'
-              ? 'bg-white dark:bg-[#1A2338] text-sky-700 dark:text-sky-300 font-semibold shadow-sm'
+              ? 'bg-white dark:bg-[#0F172A] text-[#0052FF] dark:text-[#4D7CFF] font-semibold shadow-sm'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
           }`}
         >
-          <FilePlus2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+          <FilePlus2 className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#4D7CFF]" />
           <span className="truncate">Insert</span>
         </button>
 
         <button
           onClick={() => setActiveTab('delete')}
-          className={`py-2 px-1 rounded-lg font-medium transition-all flex items-center justify-center space-x-1 ${
+          className={`py-2 px-1 rounded-xl font-medium transition-all flex items-center justify-center space-x-1 ${
             activeTab === 'delete'
-              ? 'bg-white dark:bg-[#1A2338] text-rose-700 dark:text-rose-300 font-semibold shadow-sm'
+              ? 'bg-white dark:bg-[#0F172A] text-rose-600 dark:text-rose-400 font-semibold shadow-sm'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
           }`}
         >
@@ -312,21 +307,21 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
         <button
           onClick={() => setActiveTab('merge')}
-          className={`py-2 px-1 rounded-lg font-medium transition-all flex items-center justify-center space-x-1 ${
+          className={`py-2 px-1 rounded-xl font-medium transition-all flex items-center justify-center space-x-1 ${
             activeTab === 'merge'
-              ? 'bg-white dark:bg-[#1A2338] text-sky-700 dark:text-sky-300 font-semibold shadow-sm'
+              ? 'bg-white dark:bg-[#0F172A] text-[#0052FF] dark:text-[#4D7CFF] font-semibold shadow-sm'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
           }`}
         >
-          <GitMerge className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+          <GitMerge className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#4D7CFF]" />
           <span className="truncate">Merge</span>
         </button>
 
         <button
           onClick={() => setActiveTab('maintenance')}
-          className={`py-2 px-1 rounded-lg font-medium transition-all flex items-center justify-center space-x-1 ${
+          className={`py-2 px-1 rounded-xl font-medium transition-all flex items-center justify-center space-x-1 ${
             activeTab === 'maintenance'
-              ? 'bg-white dark:bg-[#1A2338] text-amber-700 dark:text-amber-300 font-semibold shadow-sm'
+              ? 'bg-white dark:bg-[#0F172A] text-amber-600 dark:text-amber-400 font-semibold shadow-sm'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
           }`}
         >
@@ -336,9 +331,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
         <button
           onClick={() => setActiveTab('schema')}
-          className={`py-2 px-1 rounded-lg font-medium transition-all flex items-center justify-center space-x-1 ${
+          className={`py-2 px-1 rounded-xl font-medium transition-all flex items-center justify-center space-x-1 ${
             activeTab === 'schema'
-              ? 'bg-white dark:bg-[#1A2338] text-indigo-700 dark:text-indigo-300 font-semibold shadow-sm'
+              ? 'bg-white dark:bg-[#0F172A] text-indigo-600 dark:text-indigo-400 font-semibold shadow-sm'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
           }`}
         >
@@ -352,37 +347,40 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         {/* ================= TAB 1: APPEND / INSERT ================= */}
         {activeTab === 'append' && (
           <div className="space-y-4">
-            <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 flex items-center space-x-1.5">
-                <FilePlus2 className="w-4 h-4" />
-                <span>Transactional Insert (Append)</span>
+            <div className="space-y-1">
+              <div className="section-label">
+                <span className="section-dot" />
+                <span>Append Operation</span>
+              </div>
+              <h3 className="text-base font-calistoga tracking-tight text-slate-900 dark:text-white flex items-center gap-1.5 pt-1">
+                Transactional Insert
               </h3>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 Generates Parquet data files, builds new manifest entries, and reuses unchanged parent manifests with O(1) commit speed.
               </p>
             </div>
 
             {/* Quick batch generator buttons */}
-            <div className="bg-white dark:bg-[#131B2E] p-3 rounded-xl border border-slate-200 dark:border-[#243048] space-y-2 shadow-sm">
+            <div className="card-signature p-3.5 space-y-2.5">
               <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block">
                 ⚡ Quick Batch Data Ingestion
               </span>
               <div className="grid grid-cols-3 gap-2">
                 <button
                   onClick={() => handleGenerateBatch(1)}
-                  className="py-1.5 px-2 rounded-lg bg-emerald-50 dark:bg-emerald-500/15 hover:bg-emerald-100 dark:hover:bg-emerald-500/25 border border-emerald-300 dark:border-emerald-500/40 text-emerald-800 dark:text-emerald-300 text-xs font-medium transition-all"
+                  className="py-1.5 px-2 rounded-xl bg-slate-100 dark:bg-[#0F172A] hover:bg-[#0052FF]/10 border border-slate-200 dark:border-[#334155] text-slate-800 dark:text-slate-200 text-xs font-medium transition-all hover:border-[#0052FF]/40"
                 >
                   +1 Row
                 </button>
                 <button
                   onClick={() => handleGenerateBatch(5)}
-                  className="py-1.5 px-2 rounded-lg bg-sky-50 dark:bg-sky-500/15 hover:bg-sky-100 dark:hover:bg-sky-500/25 border border-sky-300 dark:border-sky-500/40 text-sky-800 dark:text-sky-300 text-xs font-medium transition-all"
+                  className="py-1.5 px-2 rounded-xl bg-[#0052FF]/5 dark:bg-[#0052FF]/15 hover:bg-[#0052FF]/15 border border-[#0052FF]/30 text-[#0052FF] dark:text-[#4D7CFF] text-xs font-semibold transition-all"
                 >
                   +5 Rows
                 </button>
                 <button
                   onClick={() => handleGenerateBatch(15)}
-                  className="py-1.5 px-2 rounded-lg bg-indigo-50 dark:bg-indigo-500/15 hover:bg-indigo-100 dark:hover:bg-indigo-500/25 border border-indigo-300 dark:border-indigo-500/40 text-indigo-800 dark:text-indigo-300 text-xs font-medium transition-all"
+                  className="py-1.5 px-2 rounded-xl bg-slate-100 dark:bg-[#0F172A] hover:bg-[#0052FF]/10 border border-slate-200 dark:border-[#334155] text-slate-800 dark:text-slate-200 text-xs font-medium transition-all hover:border-[#0052FF]/40"
                 >
                   +15 Rows
                 </button>
@@ -390,7 +388,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             </div>
 
             {/* Manual Form Builder */}
-            <form onSubmit={handleSingleAppend} className="bg-white dark:bg-[#131B2E] p-3.5 rounded-xl border border-slate-200 dark:border-[#243048] space-y-3 shadow-sm">
+            <form onSubmit={handleSingleAppend} className="card-signature p-3.5 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                   Custom Row Attributes
@@ -398,7 +396,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 <button
                   type="button"
                   onClick={() => setUseJsonMode(!useJsonMode)}
-                  className="text-[10px] text-sky-600 dark:text-sky-400 hover:underline"
+                  className="text-[11px] text-[#0052FF] dark:text-[#4D7CFF] font-medium hover:underline"
                 >
                   {useJsonMode ? 'Form View' : 'Raw JSON Mode'}
                 </button>
@@ -409,15 +407,15 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                   {currentSchema.fields.map(field => (
                     <div key={field.id} className="flex flex-col space-y-1">
                       <div className="flex justify-between text-[11px]">
-                        <span className="font-mono text-slate-700 dark:text-slate-300">{field.name}</span>
-                        <span className="text-[10px] text-slate-500 font-mono">{field.type}</span>
+                        <span className="font-mono font-medium text-slate-700 dark:text-slate-300">{field.name}</span>
+                        <span className="text-[10px] text-slate-400 font-mono">{field.type}</span>
                       </div>
                       <input
                         type="text"
                         placeholder={`e.g. ${field.name === 'dept' ? 'Engineering' : field.name === 'amount' ? '1250.00' : '42'}`}
                         value={appendForm[field.name] || ''}
                         onChange={e => setAppendForm({ ...appendForm, [field.name]: e.target.value })}
-                        className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-[#0B0F17] border border-slate-300 dark:border-[#243048] rounded-lg text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:border-sky-500"
+                        className="w-full px-3 py-1.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#334155] rounded-xl text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0052FF] focus:border-transparent transition-all"
                       />
                     </div>
                   ))}
@@ -428,13 +426,13 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                   value={customAppendJson}
                   onChange={e => setCustomAppendJson(e.target.value)}
                   placeholder={`[\n  {\n    "id": 501,\n    "dept": "Sales",\n    "amount": 2400.0\n  }\n]`}
-                  className="w-full p-2 bg-slate-50 dark:bg-[#0B0F17] border border-slate-300 dark:border-[#243048] rounded-lg text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:border-sky-500"
+                  className="w-full p-2.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#334155] rounded-xl text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0052FF] focus:border-transparent transition-all"
                 />
               )}
 
               <button
                 type="submit"
-                className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-emerald-600/20 flex items-center justify-center space-x-1.5"
+                className="btn-signature-primary w-full py-2.5 px-3 flex items-center justify-center space-x-1.5 text-xs font-medium"
               >
                 <Plus className="w-4 h-4" />
                 <span>Commit Append Transaction</span>
@@ -446,29 +444,32 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         {/* ================= TAB 2: DELETE & UPDATE (MoR vs CoW) ================= */}
         {activeTab === 'delete' && (
           <div className="space-y-4">
-            <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-rose-700 dark:text-rose-400 flex items-center space-x-1.5">
-                <Trash2 className="w-4 h-4" />
-                <span>Delete & Update Mutations</span>
+            <div className="space-y-1">
+              <div className="section-label border-rose-300 dark:border-rose-500/40 text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10">
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                <span>Mutation Engine</span>
+              </div>
+              <h3 className="text-base font-calistoga tracking-tight text-slate-900 dark:text-white flex items-center gap-1.5 pt-1">
+                Delete & Update Mutations
               </h3>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 Compare Merge-on-Read (positional delete tombstones) vs Copy-on-Write (data file rewrites).
               </p>
             </div>
 
             {/* MoR vs CoW Selector */}
-            <div className="bg-white dark:bg-[#131B2E] p-3 rounded-xl border border-slate-200 dark:border-[#243048] space-y-2.5 shadow-sm">
+            <div className="card-signature p-3.5 space-y-2.5">
               <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block">
                 Row-Level Mutation Mode
               </span>
 
-              <div className="grid grid-cols-2 gap-2 bg-slate-100 dark:bg-[#0B0F17] p-1 rounded-lg border border-slate-200 dark:border-[#243048]">
+              <div className="grid grid-cols-2 gap-2 bg-slate-100 dark:bg-[#0F172A] p-1 rounded-xl border border-slate-200 dark:border-[#334155]">
                 <button
                   type="button"
                   onClick={() => setDeleteMode('mor')}
-                  className={`py-1.5 px-2 rounded-md text-xs font-semibold transition-all ${
+                  className={`py-1.5 px-2 rounded-lg text-xs font-semibold transition-all ${
                     deleteMode === 'mor'
-                      ? 'bg-white dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-500/40 shadow-sm'
+                      ? 'bg-white dark:bg-[#1E293B] text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/40 shadow-sm'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                   }`}
                 >
@@ -477,9 +478,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 <button
                   type="button"
                   onClick={() => setDeleteMode('cow')}
-                  className={`py-1.5 px-2 rounded-md text-xs font-semibold transition-all ${
+                  className={`py-1.5 px-2 rounded-lg text-xs font-semibold transition-all ${
                     deleteMode === 'cow'
-                      ? 'bg-white dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-500/40 shadow-sm'
+                      ? 'bg-white dark:bg-[#1E293B] text-[#0052FF] dark:text-[#4D7CFF] border border-[#0052FF]/30 shadow-sm'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                   }`}
                 >
@@ -488,25 +489,25 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               </div>
 
               {/* Mode Explainer Card */}
-              <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-[#0B0F17]/70 border border-slate-200 dark:border-slate-700/50 text-[10px] space-y-1">
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#334155] text-[11px] space-y-1">
                 {deleteMode === 'mor' ? (
                   <>
-                    <div className="font-bold text-rose-700 dark:text-rose-300 flex items-center gap-1">
-                      <Zap className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+                    <div className="font-bold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                      <Zap className="w-3.5 h-3.5" />
                       <span>Merge-on-Read (Fast Writes):</span>
                     </div>
                     <p className="text-slate-600 dark:text-slate-400">
-                      Leaves original Parquet data files untouched on disk. Writes a lightweight positional <code className="text-rose-600 dark:text-rose-400 font-semibold">.delete</code> file containing row offsets.
+                      Leaves original Parquet data files untouched on disk. Writes a lightweight positional <code className="text-rose-600 dark:text-rose-400 font-semibold font-mono">.delete</code> file containing row offsets.
                     </p>
                   </>
                 ) : (
                   <>
-                    <div className="font-bold text-indigo-700 dark:text-indigo-300 flex items-center gap-1">
-                      <Split className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                    <div className="font-bold text-[#0052FF] dark:text-[#4D7CFF] flex items-center gap-1">
+                      <Split className="w-3.5 h-3.5" />
                       <span>Copy-on-Write (Fast Reads):</span>
                     </div>
                     <p className="text-slate-600 dark:text-slate-400">
-                      Rewrites surviving records into a brand new Parquet data file. Marks the old file entry as <code className="text-indigo-600 dark:text-indigo-400 font-bold">status: 2 (DELETED)</code>.
+                      Rewrites surviving records into a brand new Parquet data file. Marks the old file entry as <code className="text-[#0052FF] dark:text-[#4D7CFF] font-bold font-mono">status: 2 (DELETED)</code>.
                     </p>
                   </>
                 )}
@@ -514,7 +515,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             </div>
 
             {/* Predicate Target Filter */}
-            <div className="bg-white dark:bg-[#131B2E] p-3 rounded-xl border border-slate-200 dark:border-[#243048] space-y-2 shadow-sm">
+            <div className="card-signature p-3.5 space-y-2.5">
               <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block">
                 Target Row Predicate (WHERE Clause)
               </span>
@@ -523,18 +524,18 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 value={predicateInput}
                 onChange={e => setPredicateInput(e.target.value)}
                 placeholder="e.g. id = 102 or dept = 'Marketing'"
-                className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-[#0B0F17] border border-slate-300 dark:border-[#243048] rounded-lg text-xs font-mono text-rose-700 dark:text-rose-300 focus:outline-none focus:border-rose-500"
+                className="w-full px-3 py-1.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#334155] rounded-xl text-xs font-mono text-rose-600 dark:text-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-transparent transition-all"
               />
-              <div className="flex gap-1 text-[10px]">
+              <div className="flex gap-1.5 text-[10px]">
                 <button
                   onClick={() => setPredicateInput("dept = 'Engineering'")}
-                  className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300"
+                  className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-[#0F172A] text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
                 >
                   dept='Engineering'
                 </button>
                 <button
                   onClick={() => setPredicateInput("id = 101")}
-                  className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300"
+                  className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-[#0F172A] text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
                 >
                   id=101
                 </button>
@@ -542,7 +543,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
               <button
                 onClick={handleDelete}
-                className="w-full mt-2 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-rose-600/20 flex items-center justify-center space-x-1.5"
+                className="w-full mt-2 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-rose-600/20 hover:-translate-y-0.5 active:scale-98 flex items-center justify-center space-x-1.5"
               >
                 <Trash2 className="w-4 h-4" />
                 <span>Execute {deleteMode.toUpperCase()} Delete</span>
@@ -550,7 +551,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             </div>
 
             {/* Atomic Update Section */}
-            <div className="bg-white dark:bg-[#131B2E] p-3 rounded-xl border border-slate-200 dark:border-[#243048] space-y-2 shadow-sm">
+            <div className="card-signature p-3.5 space-y-2.5">
               <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block">
                 Atomic UPDATE Transaction
               </span>
@@ -558,7 +559,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 <select
                   value={updateField || currentSchema.fields[0]?.name || ''}
                   onChange={e => setUpdateField(e.target.value)}
-                  className="px-2 py-1 bg-slate-50 dark:bg-[#0B0F17] border border-slate-300 dark:border-[#243048] rounded text-xs font-mono text-slate-800 dark:text-slate-200"
+                  className="px-2.5 py-1.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#334155] rounded-xl text-xs font-mono text-slate-800 dark:text-slate-200"
                 >
                   {currentSchema.fields.map(f => (
                     <option key={f.id} value={f.name}>{f.name} ({f.type})</option>
@@ -569,13 +570,13 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                   placeholder="New Value"
                   value={updateValue}
                   onChange={e => setUpdateValue(e.target.value)}
-                  className="px-2 py-1 bg-slate-50 dark:bg-[#0B0F17] border border-slate-300 dark:border-[#243048] rounded text-xs font-mono text-slate-800 dark:text-slate-200"
+                  className="px-2.5 py-1.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#334155] rounded-xl text-xs font-mono text-slate-800 dark:text-slate-200"
                 />
               </div>
 
               <button
                 onClick={handleUpdate}
-                className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-indigo-600/20"
+                className="btn-signature-primary w-full py-2.5 text-xs font-medium"
               >
                 Execute Atomic Update
               </button>
@@ -586,34 +587,37 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         {/* ================= TAB 3: MERGE INTO (UPSERT) ================= */}
         {activeTab === 'merge' && (
           <div className="space-y-4">
-            <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-sky-700 dark:text-sky-400 flex items-center space-x-1.5">
-                <GitMerge className="w-4 h-4" />
-                <span>MERGE INTO (Upsert / CDC)</span>
+            <div className="space-y-1">
+              <div className="section-label">
+                <span className="section-dot" />
+                <span>Lakehouse Upsert</span>
+              </div>
+              <h3 className="text-base font-calistoga tracking-tight text-slate-900 dark:text-white flex items-center gap-1.5 pt-1">
+                MERGE INTO (CDC & Upsert)
               </h3>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 Evaluates incoming batch against active rows on a match key. Atomically updates matched records and inserts new records.
               </p>
             </div>
 
             {/* SQL Spec Preview */}
-            <div className="p-3 bg-slate-100 dark:bg-[#0B0F17] rounded-xl border border-slate-200 dark:border-[#243048] font-mono text-[11px] text-sky-700 dark:text-sky-300 leading-relaxed shadow-inner">
+            <div className="p-3 bg-white dark:bg-[#1E293B] rounded-xl border border-slate-200 dark:border-[#334155] font-mono text-[11px] leading-relaxed shadow-sm">
               <span className="text-slate-400">MERGE INTO </span>
               <span className="font-bold text-amber-600 dark:text-amber-400">{state.catalogPointer.tableIdentifier}</span>
               <span className="text-slate-400"> t USING source s</span>
               <br />
               <span className="text-slate-400">ON t.</span>
-              <span className="font-bold text-sky-600 dark:text-sky-400">{mergeMatchKey}</span>
+              <span className="font-bold text-[#0052FF] dark:text-[#4D7CFF]">{mergeMatchKey}</span>
               <span className="text-slate-400"> = s.</span>
-              <span className="font-bold text-sky-600 dark:text-sky-400">{mergeMatchKey}</span>
+              <span className="font-bold text-[#0052FF] dark:text-[#4D7CFF]">{mergeMatchKey}</span>
               <br />
               <span className="text-emerald-600 dark:text-emerald-400 font-semibold">WHEN MATCHED THEN UPDATE</span>
               <br />
-              <span className="text-indigo-600 dark:text-indigo-400 font-semibold">WHEN NOT MATCHED THEN INSERT</span>
+              <span className="text-[#0052FF] dark:text-[#4D7CFF] font-semibold">WHEN NOT MATCHED THEN INSERT</span>
             </div>
 
             {/* Config: Match Key & Mutability Mode */}
-            <div className="bg-white dark:bg-[#131B2E] p-3 rounded-xl border border-slate-200 dark:border-[#243048] space-y-3 shadow-sm">
+            <div className="card-signature p-3.5 space-y-3">
               <div className="space-y-1">
                 <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block">
                   Join / Match Key Column
@@ -621,7 +625,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 <select
                   value={mergeMatchKey}
                   onChange={e => setMergeMatchKey(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-[#0B0F17] border border-slate-300 dark:border-[#243048] rounded-lg text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:border-sky-500"
+                  className="w-full px-3 py-1.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#334155] rounded-xl text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0052FF]"
                 >
                   {currentSchema.fields.map(f => (
                     <option key={f.id} value={f.name}>
@@ -636,12 +640,12 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block">
                   Iceberg Mutability Architecture
                 </span>
-                <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 dark:bg-[#0B0F17] rounded-lg border border-slate-200 dark:border-[#243048] text-xs">
+                <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 dark:bg-[#0F172A] rounded-xl border border-slate-200 dark:border-[#334155] text-xs">
                   <button
                     onClick={() => setMergeMode('mor')}
-                    className={`py-1.5 px-2 rounded-md font-semibold transition-all flex items-center justify-center space-x-1 ${
+                    className={`py-1.5 px-2 rounded-lg font-semibold transition-all flex items-center justify-center space-x-1 ${
                       mergeMode === 'mor'
-                        ? 'bg-sky-500 text-white shadow-sm'
+                        ? 'btn-signature-primary shadow-sm'
                         : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                     }`}
                   >
@@ -651,7 +655,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
                   <button
                     onClick={() => setMergeMode('cow')}
-                    className={`py-1.5 px-2 rounded-md font-semibold transition-all flex items-center justify-center space-x-1 ${
+                    className={`py-1.5 px-2 rounded-lg font-semibold transition-all flex items-center justify-center space-x-1 ${
                       mergeMode === 'cow'
                         ? 'bg-indigo-600 text-white shadow-sm'
                         : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -664,34 +668,34 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               </div>
 
               {/* Quick Presets */}
-              <div className="space-y-1.5 pt-1 border-t border-slate-100 dark:border-[#1E2A44]">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
+              <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-[#334155]">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block font-mono">
                   Quick 1-Click Simulation Presets
                 </span>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => handleMergePreset('quick')}
-                    className="py-2 px-2.5 rounded-lg bg-sky-50 dark:bg-sky-500/10 hover:bg-sky-100 dark:hover:bg-sky-500/20 border border-sky-200 dark:border-sky-500/30 text-sky-700 dark:text-sky-300 text-xs font-semibold text-left transition-all"
+                    className="py-2 px-2.5 rounded-xl bg-[#0052FF]/5 dark:bg-[#0052FF]/15 hover:bg-[#0052FF]/15 border border-[#0052FF]/20 text-[#0052FF] dark:text-[#4D7CFF] text-xs font-semibold text-left transition-all"
                   >
                     <div className="font-bold text-[11px]">⚡ Quick Upsert</div>
-                    <div className="text-[10px] text-sky-600/80 dark:text-sky-400/80 font-normal">1 Update + 2 Inserts</div>
+                    <div className="text-[10px] opacity-80 font-normal">1 Update + 2 Inserts</div>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handleMergePreset('cdc')}
-                    className="py-2 px-2.5 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 border border-indigo-200 dark:border-indigo-500/30 text-indigo-700 dark:text-indigo-300 text-xs font-semibold text-left transition-all"
+                    className="py-2 px-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-500/15 hover:bg-indigo-100 dark:hover:bg-indigo-500/25 border border-indigo-200 dark:border-indigo-500/30 text-indigo-700 dark:text-indigo-300 text-xs font-semibold text-left transition-all"
                   >
                     <div className="font-bold text-[11px]">🌊 CDC Stream</div>
-                    <div className="text-[10px] text-indigo-600/80 dark:text-indigo-400/80 font-normal">5 Micro-Batch Events</div>
+                    <div className="text-[10px] opacity-80 font-normal">5 Micro-Batch Events</div>
                   </button>
                 </div>
               </div>
             </div>
 
             {/* Custom JSON Merge Form */}
-            <form onSubmit={handleCustomMergeSubmit} className="bg-white dark:bg-[#131B2E] p-3 rounded-xl border border-slate-200 dark:border-[#243048] space-y-2 shadow-sm">
+            <form onSubmit={handleCustomMergeSubmit} className="card-signature p-3.5 space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
                   Custom Ingestion Payload (JSON)
@@ -707,7 +711,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                     ];
                     setMergeJsonInput(JSON.stringify(sample, null, 2));
                   }}
-                  className="text-[10px] text-sky-600 hover:text-sky-500 font-mono"
+                  className="text-[10px] text-[#0052FF] dark:text-[#4D7CFF] hover:underline font-mono"
                 >
                   Load Sample
                 </button>
@@ -718,12 +722,12 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 onChange={e => setMergeJsonInput(e.target.value)}
                 rows={4}
                 placeholder={`[\n  { "${mergeMatchKey}": 101, "amount": 9500.0 },\n  { "${mergeMatchKey}": 999, "amount": 1200.0 }\n]`}
-                className="w-full p-2 bg-slate-50 dark:bg-[#0B0F17] border border-slate-300 dark:border-[#243048] rounded-lg text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:border-sky-500"
+                className="w-full p-2.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#334155] rounded-xl text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0052FF]"
               />
 
               <button
                 type="submit"
-                className="w-full py-2 bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-sky-600/20 flex items-center justify-center space-x-1.5"
+                className="btn-signature-primary w-full py-2.5 flex items-center justify-center space-x-1.5 text-xs font-medium"
               >
                 <GitMerge className="w-4 h-4" />
                 <span>Execute MERGE INTO ({mergeMode.toUpperCase()})</span>
@@ -735,24 +739,27 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         {/* ================= TAB 4: MAINTENANCE & GC ================= */}
         {activeTab === 'maintenance' && (
           <div className="space-y-4">
-            <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400 flex items-center space-x-1.5">
-                <FolderSync className="w-4 h-4" />
-                <span>Lakehouse Maintenance & GC</span>
+            <div className="space-y-1">
+              <div className="section-label border-amber-300 dark:border-amber-500/40 text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                <span>Table Hygiene</span>
+              </div>
+              <h3 className="text-base font-calistoga tracking-tight text-slate-900 dark:text-white flex items-center gap-1.5 pt-1">
+                Lakehouse Maintenance & GC
               </h3>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 Optimize storage layouts, expire historical snapshots, and reclaim orphaned cloud storage bytes.
               </p>
             </div>
 
             {/* Routine 1: Compaction */}
-            <div className="bg-white dark:bg-[#131B2E] p-3.5 rounded-xl border border-slate-200 dark:border-[#243048] space-y-2 shadow-sm">
+            <div className="card-signature p-3.5 space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
-                  <FolderSync className="w-3.5 h-3.5" />
-                  <span>Compaction / Rewrite Data Files</span>
+                  <FolderSync className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Compaction / File Bin-Packing</span>
                 </span>
-                <span className="px-1.5 py-0.5 rounded text-[9px] bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40 font-mono">
+                <span className="px-2 py-0.5 rounded-full text-[9px] bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30 font-mono">
                   Small File Fix
                 </span>
               </div>
@@ -761,17 +768,17 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               </p>
               <button
                 onClick={() => onCompactTable()}
-                className="w-full py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-amber-600/20"
+                className="w-full py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-xl text-xs font-semibold transition-all shadow-md shadow-amber-500/20 hover:-translate-y-0.5 active:scale-98"
               >
                 Run File Compaction
               </button>
             </div>
 
             {/* Routine 2: Expire Snapshots */}
-            <div className="bg-white dark:bg-[#131B2E] p-3.5 rounded-xl border border-slate-200 dark:border-[#243048] space-y-2 shadow-sm">
+            <div className="card-signature p-3.5 space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-indigo-800 dark:text-indigo-300 flex items-center gap-1.5">
-                  <Archive className="w-3.5 h-3.5" />
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <Archive className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#4D7CFF]" />
                   <span>Expire Historical Snapshots</span>
                 </span>
                 <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
@@ -787,7 +794,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                   {currentMetadata.snapshots.slice(0, -1).map(snap => (
                     <label
                       key={snap['snapshot-id']}
-                      className="flex items-center justify-between p-1.5 rounded bg-slate-50 dark:bg-[#0B0F17] border border-slate-200 dark:border-[#243048] text-[11px] font-mono cursor-pointer hover:border-slate-400"
+                      className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#334155] text-[11px] font-mono cursor-pointer hover:border-[#0052FF]/50 transition-colors"
                     >
                       <div className="flex items-center space-x-2">
                         <input
@@ -800,7 +807,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                               setSelectedSnapshotToPrune(selectedSnapshotToPrune.filter(id => id !== snap['snapshot-id']));
                             }
                           }}
-                          className="rounded accent-indigo-500"
+                          className="rounded accent-[#0052FF]"
                         />
                         <span className="text-slate-800 dark:text-slate-200">S{snap['sequence-number']} ({snap.summary.operation})</span>
                       </div>
@@ -816,26 +823,26 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                       }
                     }}
                     disabled={selectedSnapshotToPrune.length === 0}
-                    className="w-full mt-1 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-lg text-xs font-bold transition-all"
+                    className="btn-signature-primary w-full mt-1 py-2 text-xs font-medium disabled:opacity-40 disabled:pointer-events-none"
                   >
                     Expire Selected ({selectedSnapshotToPrune.length})
                   </button>
                 </div>
               ) : (
-                <div className="text-[11px] text-slate-500 italic p-2 bg-slate-50 dark:bg-[#0B0F17] rounded">
+                <div className="text-[11px] text-slate-400 italic p-2 bg-slate-50 dark:bg-[#0F172A] rounded-xl text-center">
                   Only 1 active snapshot exists.
                 </div>
               )}
             </div>
 
             {/* Routine 3: Orphan File Cleanup */}
-            <div className="bg-white dark:bg-[#131B2E] p-3.5 rounded-xl border border-slate-200 dark:border-[#243048] space-y-2 shadow-sm">
+            <div className="card-signature p-3.5 space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-rose-800 dark:text-rose-300 flex items-center gap-1.5">
-                  <Trash className="w-3.5 h-3.5" />
+                  <Trash className="w-3.5 h-3.5 text-rose-500" />
                   <span>Purge Orphan Files</span>
                 </span>
-                <span className="px-1.5 py-0.5 rounded text-[9px] bg-rose-100 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-500/40 font-mono">
+                <span className="px-2 py-0.5 rounded-full text-[9px] bg-rose-50 dark:bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30 font-mono">
                   {orphanCount} Orphan(s)
                 </span>
               </div>
@@ -843,7 +850,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 Permanently deletes unreferenced files from object storage.
               </p>
 
-              <div className="p-2 rounded bg-slate-50 dark:bg-[#0B0F17] border border-slate-200 dark:border-[#243048] flex items-center justify-between text-xs font-mono">
+              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#334155] flex items-center justify-between text-xs font-mono">
                 <span className="text-slate-500 dark:text-slate-400">Reclaimable Storage:</span>
                 <span className="text-amber-600 dark:text-amber-400 font-bold">{formatBytes(orphanBytes)}</span>
               </div>
@@ -851,7 +858,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               <button
                 onClick={onPurgeOrphans}
                 disabled={orphanCount === 0}
-                className="w-full py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-rose-600/20"
+                className="w-full py-2.5 bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-rose-600/20 hover:-translate-y-0.5 active:scale-98 disabled:pointer-events-none"
               >
                 Purge {orphanCount} Orphan File(s)
               </button>
@@ -859,33 +866,36 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           </div>
         )}
 
-        {/* ================= TAB 4: SCHEMA & TABLE INIT ================= */}
+        {/* ================= TAB 5: SCHEMA & TABLE INIT ================= */}
         {activeTab === 'schema' && (
           <div className="space-y-4">
-            <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-400 flex items-center space-x-1.5">
-                <Sliders className="w-4 h-4" />
-                <span>Schema & Partition Spec</span>
+            <div className="space-y-1">
+              <div className="section-label border-indigo-300 dark:border-indigo-500/40 text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10">
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                <span>DDL Engine</span>
+              </div>
+              <h3 className="text-base font-calistoga tracking-tight text-slate-900 dark:text-white flex items-center gap-1.5 pt-1">
+                Schema & Partition Spec
               </h3>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 Configure table metadata schema and partition strategy for a new mock Iceberg table.
               </p>
             </div>
 
-            <div className="bg-white dark:bg-[#131B2E] p-3.5 rounded-xl border border-slate-200 dark:border-[#243048] space-y-3 shadow-sm">
+            <div className="card-signature p-3.5 space-y-3">
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">Table Identifier</label>
                 <input
                   type="text"
                   value={newTableName}
                   onChange={e => setNewTableName(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-[#0B0F17] border border-slate-300 dark:border-[#243048] rounded-lg text-xs font-mono text-sky-700 dark:text-sky-300"
+                  className="w-full px-3 py-1.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#334155] rounded-xl text-xs font-mono text-[#0052FF] dark:text-[#4D7CFF] focus:outline-none focus:ring-2 focus:ring-[#0052FF]"
                 />
               </div>
 
               <div className="space-y-1.5">
                 <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">Schema Fields</label>
-                <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
+                <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
                   {newFields.map((f, idx) => (
                     <div key={f.id} className="flex items-center space-x-1.5 text-xs font-mono">
                       <input
@@ -896,7 +906,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                           updated[idx].name = e.target.value;
                           setNewFields(updated);
                         }}
-                        className="flex-1 px-2 py-1 bg-slate-50 dark:bg-[#0B0F17] border border-slate-300 dark:border-[#243048] rounded text-slate-800 dark:text-slate-200"
+                        className="flex-1 px-2.5 py-1 bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#334155] rounded-xl text-slate-800 dark:text-slate-200"
                       />
                       <select
                         value={f.type}
@@ -905,7 +915,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                           updated[idx].type = e.target.value as PrimitiveType;
                           setNewFields(updated);
                         }}
-                        className="px-2 py-1 bg-slate-50 dark:bg-[#0B0F17] border border-slate-300 dark:border-[#243048] rounded text-slate-700 dark:text-slate-300"
+                        className="px-2.5 py-1 bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#334155] rounded-xl text-slate-700 dark:text-slate-300"
                       >
                         <option value="long">long</option>
                         <option value="string">string</option>
@@ -927,9 +937,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
                 <button
                   onClick={() => setNewFields([...newFields, { id: newFields.length + 1, name: `col_${newFields.length + 1}`, type: 'string', required: false }])}
-                  className="text-[10px] text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1"
+                  className="text-[11px] text-[#0052FF] dark:text-[#4D7CFF] hover:underline flex items-center gap-1 font-medium"
                 >
-                  <Plus className="w-3 h-3" />
+                  <Plus className="w-3.5 h-3.5" />
                   <span>Add Column</span>
                 </button>
               </div>
@@ -939,7 +949,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 <select
                   value={partitionSourceField}
                   onChange={e => setPartitionSourceField(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-[#0B0F17] border border-slate-300 dark:border-[#243048] rounded-lg text-xs font-mono text-slate-800 dark:text-slate-200"
+                  className="w-full px-3 py-1.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#334155] rounded-xl text-xs font-mono text-slate-800 dark:text-slate-200"
                 >
                   <option value="none">Unpartitioned</option>
                   {newFields.map(f => (
@@ -960,7 +970,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                     : [];
                   onInitCustomTable(newTableName, newFields, partFields);
                 }}
-                className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-indigo-600/20"
+                className="btn-signature-primary w-full py-2.5 text-xs font-medium"
               >
                 Initialize Table (v1.metadata.json)
               </button>
@@ -973,4 +983,3 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 };
 
 export default ControlPanel;
-

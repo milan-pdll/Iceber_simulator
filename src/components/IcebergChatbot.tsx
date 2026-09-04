@@ -873,7 +873,6 @@ export function IcebergChatbot() {
   useEffect(() => {
     if (isOpen && !isMinimized) {
       scrollToBottom();
-      setUnreadCount(0);
       setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [messages, isOpen, isMinimized, scrollToBottom]);
@@ -933,10 +932,10 @@ export function IcebergChatbot() {
         <button
           onClick={handleOpen}
           title="Ask IceBot"
-          className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95"
+          className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full flex items-center justify-center shadow-accent-lg transition-all duration-300 hover:scale-110 active:scale-95"
           style={{
-            background: 'linear-gradient(135deg, #06b6d4 0%, #3b82f6 50%, #8b5cf6 100%)',
-            boxShadow: '0 0 24px rgba(6,182,212,0.5), 0 4px 20px rgba(0,0,0,0.4)',
+            background: 'linear-gradient(135deg, #0052FF 0%, #4D7CFF 100%)',
+            boxShadow: '0 8px 24px rgba(0, 82, 255, 0.4), 0 4px 12px rgba(0, 0, 0, 0.2)',
           }}
         >
           <MessageCircle className="w-6 h-6 text-white" />
@@ -945,20 +944,19 @@ export function IcebergChatbot() {
               {unreadCount}
             </span>
           )}
-          <span className="absolute inset-0 rounded-full bg-cyan-400/30 animate-ping" />
+          <span className="absolute inset-0 rounded-full bg-[#0052FF]/30 animate-ping" />
         </button>
       )}
 
       {/* Chat Window */}
       {isOpen && (
         <div
-          className="fixed bottom-6 right-6 z-50 flex flex-col rounded-2xl overflow-hidden shadow-2xl"
+          className="fixed bottom-6 right-6 z-50 flex flex-col rounded-2xl overflow-hidden shadow-2xl border border-slate-200 dark:border-[#334155]"
           style={{
             width: '380px',
             height: isMinimized ? '60px' : '560px',
-            background: 'linear-gradient(160deg, #0f172a 0%, #0c1a2e 100%)',
-            border: '1px solid rgba(6,182,212,0.3)',
-            boxShadow: '0 0 40px rgba(6,182,212,0.15), 0 8px 32px rgba(0,0,0,0.6)',
+            background: 'linear-gradient(160deg, #0F172A 0%, #1E293B 100%)',
+            boxShadow: '0 0 40px rgba(0, 82, 255, 0.15), 0 8px 32px rgba(0,0,0,0.6)',
             transition: 'height 0.2s ease',
           }}
         >
@@ -966,26 +964,26 @@ export function IcebergChatbot() {
           <div
             className="flex items-center justify-between px-4 py-3 shrink-0 cursor-pointer select-none"
             style={{
-              background: 'linear-gradient(90deg, rgba(6,182,212,0.15) 0%, rgba(99,102,241,0.15) 100%)',
-              borderBottom: isMinimized ? 'none' : '1px solid rgba(6,182,212,0.2)',
+              background: 'linear-gradient(90deg, rgba(0, 82, 255, 0.15) 0%, rgba(77, 124, 255, 0.15) 100%)',
+              borderBottom: isMinimized ? 'none' : '1px solid rgba(0, 82, 255, 0.2)',
             }}
             onClick={() => setIsMinimized(m => !m)}
           >
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <div
-                className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
-                style={{ background: 'linear-gradient(135deg, #06b6d4, #6366f1)' }}
+                className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm"
+                style={{ background: 'linear-gradient(135deg, #0052FF, #4D7CFF)' }}
               >
                 <Bot className="w-4 h-4 text-white" />
               </div>
               <div>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-sm font-bold text-white">IceBot</span>
-                  <Sparkles className="w-3 h-3 text-cyan-400" />
+                  <span className="text-sm font-calistoga text-white">IceBot</span>
+                  <Sparkles className="w-3 h-3 text-[#4D7CFF]" />
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 font-mono text-[10px]">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="text-[10px] text-slate-400">Iceberg Expert</span>
+                  <span className="text-slate-400">Iceberg Expert</span>
                 </div>
               </div>
             </div>
@@ -1022,8 +1020,8 @@ export function IcebergChatbot() {
                     <div className="shrink-0 mt-1">
                       {msg.role === 'assistant' ? (
                         <div
-                          className="w-6 h-6 rounded-full flex items-center justify-center"
-                          style={{ background: 'linear-gradient(135deg, #06b6d4, #6366f1)' }}
+                          className="w-6 h-6 rounded-full flex items-center justify-center shadow-sm"
+                          style={{ background: 'linear-gradient(135deg, #0052FF, #4D7CFF)' }}
                         >
                           <Bot className="w-3 h-3 text-white" />
                         </div>
@@ -1036,17 +1034,17 @@ export function IcebergChatbot() {
 
                     {/* Bubble */}
                     <div
-                      className="max-w-[85%] rounded-2xl px-3 py-2.5"
+                      className="max-w-[85%] rounded-2xl px-3.5 py-2.5"
                       style={
                         msg.role === 'user'
                           ? {
-                              background: 'linear-gradient(135deg, #06b6d4, #3b82f6)',
+                              background: 'linear-gradient(135deg, #0052FF, #4D7CFF)',
                               borderBottomRightRadius: '4px',
                               color: 'white',
                             }
                           : {
                               background: 'rgba(255,255,255,0.05)',
-                              border: '1px solid rgba(6,182,212,0.15)',
+                              border: '1px solid rgba(0, 82, 255, 0.2)',
                               borderBottomLeftRadius: '4px',
                               color: '#cbd5e1',
                             }
@@ -1057,7 +1055,7 @@ export function IcebergChatbot() {
                       ) : (
                         <div className="space-y-0.5">{renderMarkdown(msg.text)}</div>
                       )}
-                      <p className={`text-[10px] mt-1.5 ${msg.role === 'user' ? 'text-white/60 text-right' : 'text-slate-500'}`}>
+                      <p className={`text-[10px] mt-1.5 font-mono ${msg.role === 'user' ? 'text-white/60 text-right' : 'text-slate-500'}`}>
                         {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </p>
                     </div>
@@ -1069,7 +1067,7 @@ export function IcebergChatbot() {
                   <div className="flex gap-2">
                     <div
                       className="w-6 h-6 rounded-full flex items-center justify-center shrink-0"
-                      style={{ background: 'linear-gradient(135deg, #06b6d4, #6366f1)' }}
+                      style={{ background: 'linear-gradient(135deg, #0052FF, #4D7CFF)' }}
                     >
                       <Bot className="w-3 h-3 text-white" />
                     </div>
@@ -1077,14 +1075,14 @@ export function IcebergChatbot() {
                       className="rounded-2xl px-4 py-3 flex items-center gap-1"
                       style={{
                         background: 'rgba(255,255,255,0.05)',
-                        border: '1px solid rgba(6,182,212,0.15)',
+                        border: '1px solid rgba(0, 82, 255, 0.2)',
                         borderBottomLeftRadius: '4px',
                       }}
                     >
                       {[0, 1, 2].map(i => (
                         <span
                           key={i}
-                          className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-bounce"
+                          className="w-1.5 h-1.5 rounded-full bg-[#4D7CFF] animate-bounce"
                           style={{ animationDelay: `${i * 0.15}s` }}
                         />
                       ))}
@@ -1099,14 +1097,14 @@ export function IcebergChatbot() {
                 <div className="px-3 pb-2">
                   <div className="flex items-center gap-1 mb-1.5">
                     <ChevronDown className="w-3 h-3 text-slate-500" />
-                    <span className="text-[10px] text-slate-500 uppercase tracking-wider">Quick questions</span>
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Quick questions</span>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {QUICK_PROMPTS.map(p => (
                       <button
                         key={p}
                         onClick={() => sendMessage(p)}
-                        className="text-[11px] px-2.5 py-1 rounded-full border border-cyan-400/30 text-cyan-300 hover:bg-cyan-400/10 transition-colors duration-150 hover:border-cyan-400/60"
+                        className="text-[11px] px-2.5 py-1 rounded-full border border-[#0052FF]/30 text-[#4D7CFF] hover:bg-[#0052FF]/10 transition-colors duration-150 hover:border-[#0052FF]/60 font-mono"
                       >
                         {p}
                       </button>
@@ -1127,8 +1125,8 @@ export function IcebergChatbot() {
                   onChange={e => setInputValue(e.target.value)}
                   placeholder="Ask about Iceberg concepts…"
                   disabled={isTyping}
-                  className="flex-1 bg-white/5 border border-cyan-400/20 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 outline-none focus:border-cyan-400/60 transition-colors duration-150 disabled:opacity-50"
-                  style={{ caretColor: '#06b6d4' }}
+                  className="flex-1 bg-white/5 border border-[#0052FF]/30 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 outline-none focus:border-[#0052FF] focus:ring-1 focus:ring-[#0052FF] transition-colors duration-150 disabled:opacity-50 font-sans"
+                  style={{ caretColor: '#0052FF' }}
                 />
                 <button
                   type="submit"
@@ -1137,7 +1135,7 @@ export function IcebergChatbot() {
                   style={{
                     background:
                       inputValue.trim() && !isTyping
-                        ? 'linear-gradient(135deg, #06b6d4, #6366f1)'
+                        ? 'linear-gradient(135deg, #0052FF, #4D7CFF)'
                         : 'rgba(255,255,255,0.1)',
                   }}
                 >

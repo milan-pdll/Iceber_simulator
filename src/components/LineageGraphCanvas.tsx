@@ -132,9 +132,9 @@ export const LineageGraphCanvas: React.FC<LineageGraphCanvasProps> = ({
       label: 'Table Metadata JSON',
       sublabel: metadataFileName,
       badge: `v${currentMetadata['last-sequence-number'] || 1} (Spec v2)`,
-      badgeColor: 'bg-indigo-50 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-500/40',
-      color: '#6366F1',
-      borderColor: '#4F46E5',
+      badgeColor: 'bg-[#0052FF]/10 text-[#0052FF] dark:text-[#4D7CFF] border-[#0052FF]/20',
+      color: '#0052FF',
+      borderColor: '#4D7CFF',
       layerIndex: 1,
       x: startX + colSpacing,
       y: startY + 120,
@@ -176,8 +176,8 @@ export const LineageGraphCanvas: React.FC<LineageGraphCanvasProps> = ({
         sublabel: `ID: ${snap['snapshot-id']}`,
         badge: snap.summary.operation.toUpperCase(),
         badgeColor: snap.summary.operation === 'append' ? 'bg-emerald-50 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/40' : 'bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/40',
-        color: isTarget ? '#8B5CF6' : '#6B7280',
-        borderColor: isTarget ? '#7C3AED' : '#94A3B8',
+        color: isTarget ? '#0052FF' : '#64748B',
+        borderColor: isTarget ? '#4D7CFF' : '#94A3B8',
         layerIndex: 2,
         x: startX + colSpacing * 2,
         y: snapStartY + idx * snapSpacing,
@@ -197,7 +197,7 @@ export const LineageGraphCanvas: React.FC<LineageGraphCanvasProps> = ({
         fromY: metadataNode.y + nodeHeight / 2,
         toX: sNode.x,
         toY: sNode.y + nodeHeight / 2,
-        color: isTarget ? '#8B5CF6' : '#94A3B8'
+        color: isTarget ? '#0052FF' : '#94A3B8'
       });
     });
 
@@ -474,27 +474,27 @@ export const LineageGraphCanvas: React.FC<LineageGraphCanvasProps> = ({
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
-      className={`relative w-full h-full overflow-hidden bg-slate-50 dark:bg-[#0B0F17] canvas-grid-pattern cursor-${isDragging ? 'grabbing' : 'grab'} select-none transition-colors duration-200`}
+      className={`relative w-full h-full overflow-hidden bg-[#FAFAFA] dark:bg-[#0F172A] canvas-grid-pattern cursor-${isDragging ? 'grabbing' : 'grab'} select-none transition-colors duration-200`}
     >
       {/* Canvas Top Bar Controls & Legend */}
-      <div className="absolute top-4 left-4 z-20 flex items-center space-x-2 bg-white/95 dark:bg-[#111827]/90 backdrop-blur-md border border-slate-200 dark:border-[#243048] p-1.5 rounded-xl shadow-xl">
+      <div className="absolute top-4 left-4 z-20 flex items-center space-x-2 bg-white/95 dark:bg-[#1E293B]/95 backdrop-blur-md border border-slate-200 dark:border-[#334155] p-1.5 rounded-xl shadow-lg">
         <button
           onClick={handleZoomIn}
-          className="p-1.5 text-slate-700 dark:text-slate-300 hover:text-sky-500 hover:bg-slate-100 dark:hover:bg-[#1E293B] rounded-lg transition-all"
+          className="p-1.5 text-slate-700 dark:text-slate-300 hover:text-[#0052FF] dark:hover:text-[#4D7CFF] hover:bg-slate-100 dark:hover:bg-[#0F172A] rounded-lg transition-all"
           title="Zoom In"
         >
           <ZoomIn className="w-4 h-4" />
         </button>
         <button
           onClick={handleZoomOut}
-          className="p-1.5 text-slate-700 dark:text-slate-300 hover:text-sky-500 hover:bg-slate-100 dark:hover:bg-[#1E293B] rounded-lg transition-all"
+          className="p-1.5 text-slate-700 dark:text-slate-300 hover:text-[#0052FF] dark:hover:text-[#4D7CFF] hover:bg-slate-100 dark:hover:bg-[#0F172A] rounded-lg transition-all"
           title="Zoom Out"
         >
           <ZoomOut className="w-4 h-4" />
         </button>
         <button
           onClick={handleResetView}
-          className="p-1.5 text-slate-700 dark:text-slate-300 hover:text-sky-500 hover:bg-slate-100 dark:hover:bg-[#1E293B] rounded-lg transition-all"
+          className="p-1.5 text-slate-700 dark:text-slate-300 hover:text-[#0052FF] dark:hover:text-[#4D7CFF] hover:bg-slate-100 dark:hover:bg-[#0F172A] rounded-lg transition-all"
           title="Reset View"
         >
           <Maximize2 className="w-4 h-4" />
@@ -505,27 +505,27 @@ export const LineageGraphCanvas: React.FC<LineageGraphCanvasProps> = ({
       </div>
 
       {/* Layer Hierarchy Header Legend */}
-      <div className="absolute top-4 right-4 z-20 hidden md:flex items-center space-x-3 bg-white/95 dark:bg-[#111827]/90 backdrop-blur-md border border-slate-200 dark:border-[#243048] px-3 py-1.5 rounded-xl text-[11px] font-mono shadow-xl">
+      <div className="absolute top-4 right-4 z-20 hidden md:flex items-center space-x-3 bg-white/95 dark:bg-[#1E293B]/95 backdrop-blur-md border border-slate-200 dark:border-[#334155] px-3.5 py-1.5 rounded-xl text-[11px] font-mono shadow-lg">
         <div className="flex items-center space-x-1.5">
           <span className="w-2.5 h-2.5 rounded-full bg-[#F59E0B]" />
           <span className="text-slate-700 dark:text-slate-300">Catalog</span>
         </div>
-        <span className="text-slate-400 dark:text-slate-600">➔</span>
+        <span className="text-slate-300 dark:text-slate-600">➔</span>
         <div className="flex items-center space-x-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#6366F1]" />
+          <span className="w-2.5 h-2.5 rounded-full bg-[#0052FF]" />
           <span className="text-slate-700 dark:text-slate-300">Metadata JSON</span>
         </div>
-        <span className="text-slate-400 dark:text-slate-600">➔</span>
+        <span className="text-slate-300 dark:text-slate-600">➔</span>
         <div className="flex items-center space-x-1.5">
           <span className="w-2.5 h-2.5 rounded-full bg-[#0284C7]" />
           <span className="text-slate-700 dark:text-slate-300">Manifest List</span>
         </div>
-        <span className="text-slate-400 dark:text-slate-600">➔</span>
+        <span className="text-slate-300 dark:text-slate-600">➔</span>
         <div className="flex items-center space-x-1.5">
           <span className="w-2.5 h-2.5 rounded-full bg-[#0D9488]" />
           <span className="text-slate-700 dark:text-slate-300">Manifest File</span>
         </div>
-        <span className="text-slate-400 dark:text-slate-600">➔</span>
+        <span className="text-slate-300 dark:text-slate-600">➔</span>
         <div className="flex items-center space-x-1.5">
           <span className="w-2.5 h-2.5 rounded-full bg-[#16A34A]" />
           <span className="text-slate-700 dark:text-slate-300">Data / Delete File</span>
@@ -594,16 +594,16 @@ export const LineageGraphCanvas: React.FC<LineageGraphCanvasProps> = ({
             <div
               key={node.id}
               onClick={() => handleNodeClick(node)}
-              className={`graph-node-interactive absolute rounded-xl p-3 flex flex-col justify-between transition-all duration-150 cursor-pointer shadow-md ${
+              className={`graph-node-interactive absolute rounded-xl p-3 flex flex-col justify-between transition-all duration-150 cursor-pointer ${
                 isSelected
-                  ? 'ring-2 ring-sky-500 dark:ring-sky-400 shadow-sky-500/30 scale-105 z-10'
-                  : 'hover:scale-[1.02] hover:shadow-lg'
+                  ? 'ring-2 ring-[#0052FF] dark:ring-[#4D7CFF] shadow-accent-lg scale-105 z-10'
+                  : 'hover:scale-[1.02] hover:shadow-md'
               } ${
                 isPruned
-                  ? 'opacity-40 grayscale border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-[#0F1420]/80'
+                  ? 'opacity-40 grayscale border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-[#0F172A]'
                   : isScanned
-                  ? 'border-2 border-emerald-500 dark:border-emerald-400 bg-emerald-50/90 dark:bg-[#111A2E]/95 shadow-emerald-500/20'
-                  : 'border bg-white dark:bg-[#131B2E]/95'
+                  ? 'border-2 border-emerald-500 bg-emerald-50/90 dark:bg-emerald-950/40 shadow-emerald-500/20'
+                  : 'border border-slate-200 dark:border-[#334155] bg-white dark:bg-[#1E293B] shadow-sm'
               }`}
               style={{
                 left: `${node.x}px`,

@@ -22,7 +22,6 @@ interface TourStep {
   title: string;
   subtitle: string;
   badge: string;
-  badgeColor: string;
   icon: React.ReactNode;
   content: string[];
   distributedInsight: string;
@@ -33,8 +32,7 @@ const TOUR_STEPS: TourStep[] = [
     title: '1. The 3-Tier Metadata Hierarchy',
     subtitle: 'Decoupling Object Storage from Query Engines',
     badge: 'Core Architecture',
-    badgeColor: 'bg-indigo-100 dark:bg-indigo-500/20 text-indigo-800 dark:text-indigo-300 border-indigo-300 dark:border-indigo-500/40',
-    icon: <Layers className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />,
+    icon: <Layers className="w-6 h-6 text-[#0052FF] dark:text-[#4D7CFF]" />,
     content: [
       'Traditional Hive tables tracked partitions directly in an external database, requiring expensive file system LIST operations on object storage like S3.',
       'Apache Iceberg organizes metadata into a deterministic, immutable 3-tier tree:',
@@ -48,8 +46,7 @@ const TOUR_STEPS: TourStep[] = [
     title: '2. O(1) Commits & Metadata Reuse',
     subtitle: 'Constant Time Transactions at Petabyte Scale',
     badge: 'Performance & Scale',
-    badgeColor: 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-500/40',
-    icon: <Zap className="w-6 h-6 text-amber-600 dark:text-amber-400" />,
+    icon: <Zap className="w-6 h-6 text-amber-500" />,
     content: [
       'When appending new records to a table with 10,000 existing data files, naive formats rewrite the entire metadata index (O(N) write amplification).',
       'In Apache Iceberg, snapshots achieve O(1) commit complexity:',
@@ -63,8 +60,7 @@ const TOUR_STEPS: TourStep[] = [
     title: '3. Merge-on-Read (MoR) vs Copy-on-Write (CoW)',
     subtitle: 'Balancing Write Amplification against Query Scan Latency',
     badge: 'Row-Level Deletes',
-    badgeColor: 'bg-rose-100 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-500/40',
-    icon: <Split className="w-6 h-6 text-rose-600 dark:text-rose-400" />,
+    icon: <Split className="w-6 h-6 text-rose-500" />,
     content: [
       'Iceberg v2 Spec introduces first-class row-level mutations:',
       '• Merge-on-Read (MoR): Keeps original Parquet data files completely untouched. Writes a small .delete Parquet file containing row positions.',
@@ -77,8 +73,7 @@ const TOUR_STEPS: TourStep[] = [
     title: '4. Two-Tier Query Engine Pruning',
     subtitle: 'Skipping 95%+ of Storage I/O Before Reading Parquet Footers',
     badge: 'Query Engine Internals',
-    badgeColor: 'bg-sky-100 dark:bg-sky-500/20 text-sky-800 dark:text-sky-300 border-sky-300 dark:border-sky-500/40',
-    icon: <Search className="w-6 h-6 text-sky-600 dark:text-sky-400" />,
+    icon: <Search className="w-6 h-6 text-[#0052FF] dark:text-[#4D7CFF]" />,
     content: [
       'When a query with a filter runs (e.g., WHERE dept = "Engineering" AND id >= 100), Iceberg executes a two-tier pruning sequence:',
       '• Tier 1 (Manifest List Level): Inspects partition summary bounds. Completely skips entire Manifest files without opening them from object storage.',
@@ -91,8 +86,7 @@ const TOUR_STEPS: TourStep[] = [
     title: '5. Compaction & Garbage Collection',
     subtitle: 'Resolving the Small-File Problem and Reclaiming Storage',
     badge: 'Table Maintenance',
-    badgeColor: 'bg-teal-100 dark:bg-teal-500/20 text-teal-800 dark:text-teal-300 border-teal-300 dark:border-teal-500/40',
-    icon: <FolderSync className="w-6 h-6 text-teal-600 dark:text-teal-400" />,
+    icon: <FolderSync className="w-6 h-6 text-teal-500" />,
     content: [
       'Lakehouse tables naturally accumulate small files and MoR delete files over time.',
       'Iceberg table maintenance solves this via two built-in routines:',
@@ -131,21 +125,21 @@ export const GuidedTour: React.FC<GuidedTourProps> = ({ isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-4 select-none animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-[#0E1626] border border-slate-200 dark:border-[#243048] rounded-2xl w-full max-w-2xl flex flex-col shadow-2xl overflow-hidden transition-colors">
+      <div className="bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-[#334155] rounded-2xl w-full max-w-2xl flex flex-col shadow-2xl overflow-hidden transition-colors">
         {/* Header */}
-        <div className="h-16 border-b border-slate-200 dark:border-[#243048] px-6 flex items-center justify-between bg-slate-100 dark:bg-[#121B2E]">
-          <div className="flex items-center space-x-3">
-            <div className="p-2 rounded-xl bg-sky-100 dark:bg-sky-500/15 border border-sky-300 dark:border-sky-500/30 text-sky-600 dark:text-sky-400">
+        <div className="h-16 border-b border-slate-200 dark:border-[#334155] px-6 flex items-center justify-between bg-[#FAFAFA] dark:bg-[#1E293B]">
+          <div className="flex items-center space-x-3.5">
+            <div className="p-2 rounded-xl bg-[#0052FF]/10 dark:bg-[#0052FF]/20 border border-[#0052FF]/20 text-[#0052FF] dark:text-[#4D7CFF] shadow-sm">
               <Sparkles className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-                <span>Apache Iceberg Architecture Tour</span>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono border ${currentStep.badgeColor}`}>
+              <h2 className="text-base font-calistoga text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+                <span>Architecture Tour</span>
+                <span className="section-label py-0.5 px-2.5 text-[10px]">
                   {currentStep.badge}
                 </span>
               </h2>
-              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+              <span className="text-[11px] text-slate-400 font-mono">
                 Step {stepIndex + 1} of {TOUR_STEPS.length}
               </span>
             </div>
@@ -153,7 +147,7 @@ export const GuidedTour: React.FC<GuidedTourProps> = ({ isOpen, onClose }) => {
 
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+            className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-xl hover:bg-slate-100 dark:hover:bg-[#0F172A] transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -162,25 +156,25 @@ export const GuidedTour: React.FC<GuidedTourProps> = ({ isOpen, onClose }) => {
         {/* Body Content */}
         <div className="p-6 space-y-5">
           <div className="flex items-start space-x-4">
-            <div className="p-3 rounded-2xl bg-slate-100 dark:bg-[#141E33] border border-slate-300 dark:border-slate-700/60 shadow-inner shrink-0">
+            <div className="p-3.5 rounded-2xl bg-[#FAFAFA] dark:bg-[#1E293B] border border-slate-200 dark:border-[#334155] shadow-sm shrink-0">
               {currentStep.icon}
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">{currentStep.title}</h3>
-              <p className="text-xs text-sky-600 dark:text-sky-400 font-medium mt-0.5">{currentStep.subtitle}</p>
+              <h3 className="text-lg font-calistoga text-slate-900 dark:text-white tracking-tight">{currentStep.title}</h3>
+              <p className="text-xs text-[#0052FF] dark:text-[#4D7CFF] font-medium mt-0.5">{currentStep.subtitle}</p>
             </div>
           </div>
 
-          <div className="space-y-2.5 bg-slate-50 dark:bg-[#090D17] p-4 rounded-xl border border-slate-200 dark:border-[#243048] text-xs text-slate-700 dark:text-slate-300 leading-relaxed shadow-inner">
+          <div className="space-y-2.5 bg-slate-50 dark:bg-[#0F172A] p-4 rounded-xl border border-slate-200 dark:border-[#334155] text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
             {currentStep.content.map((p, idx) => (
               <p key={idx}>{p}</p>
             ))}
           </div>
 
           {/* Engine Mechanic Callout */}
-          <div className="p-3.5 rounded-xl bg-gradient-to-r from-sky-50 via-indigo-50 to-purple-50 dark:from-sky-950/40 dark:via-indigo-950/30 dark:to-purple-950/40 border border-sky-200 dark:border-sky-500/30 text-xs">
-            <div className="font-bold text-sky-700 dark:text-sky-300 flex items-center gap-1.5 mb-1">
-              <HardDrive className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+          <div className="p-3.5 rounded-xl bg-gradient-to-r from-[#0052FF]/5 to-[#4D7CFF]/5 border border-[#0052FF]/20 text-xs">
+            <div className="font-bold text-[#0052FF] dark:text-[#4D7CFF] flex items-center gap-1.5 mb-1 font-mono text-[11px]">
+              <HardDrive className="w-4 h-4" />
               <span>Distributed Systems Deep-Dive</span>
             </div>
             <p className="text-slate-700 dark:text-slate-300 text-[11px] leading-relaxed">
@@ -190,11 +184,11 @@ export const GuidedTour: React.FC<GuidedTourProps> = ({ isOpen, onClose }) => {
         </div>
 
         {/* Footer Navigation */}
-        <div className="h-16 border-t border-slate-200 dark:border-[#243048] px-6 flex items-center justify-between bg-slate-100 dark:bg-[#121B2E]">
+        <div className="h-16 border-t border-slate-200 dark:border-[#334155] px-6 flex items-center justify-between bg-[#FAFAFA] dark:bg-[#1E293B]">
           <button
             onClick={handlePrev}
             disabled={stepIndex === 0}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-[#162035] hover:bg-slate-100 dark:hover:bg-[#1E2B45] disabled:opacity-30 disabled:cursor-not-allowed border border-slate-300 dark:border-[#243048] text-slate-700 dark:text-slate-300 text-xs font-semibold transition-all"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-[#0F172A] hover:bg-slate-100 dark:hover:bg-[#1E293B] disabled:opacity-30 disabled:cursor-not-allowed border border-slate-200 dark:border-[#334155] text-slate-700 dark:text-slate-300 text-xs font-semibold transition-all shadow-sm"
           >
             <ChevronLeft className="w-4 h-4" />
             <span>Previous</span>
@@ -205,8 +199,8 @@ export const GuidedTour: React.FC<GuidedTourProps> = ({ isOpen, onClose }) => {
             {TOUR_STEPS.map((_, idx) => (
               <span
                 key={idx}
-                className={`w-2 h-2 rounded-full transition-all ${
-                  idx === stepIndex ? 'bg-sky-500 dark:bg-sky-400 w-5' : 'bg-slate-300 dark:bg-slate-700'
+                className={`h-2 rounded-full transition-all ${
+                  idx === stepIndex ? 'btn-signature-primary w-6' : 'bg-slate-300 dark:bg-slate-700 w-2'
                 }`}
               />
             ))}
@@ -214,7 +208,7 @@ export const GuidedTour: React.FC<GuidedTourProps> = ({ isOpen, onClose }) => {
 
           <button
             onClick={handleNext}
-            className="flex items-center space-x-1.5 px-4 py-1.5 rounded-lg bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white text-xs font-bold transition-all shadow-lg shadow-sky-500/20"
+            className="btn-signature-primary flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold shadow-sm"
           >
             <span>{stepIndex === TOUR_STEPS.length - 1 ? 'Finish Tour' : 'Next Step'}</span>
             <ChevronRight className="w-4 h-4" />
@@ -226,4 +220,3 @@ export const GuidedTour: React.FC<GuidedTourProps> = ({ isOpen, onClose }) => {
 };
 
 export default GuidedTour;
-

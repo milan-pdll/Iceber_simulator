@@ -238,3 +238,43 @@ Create a fully self-contained floating chatbot widget embedded directly in the a
 
 ### 🏁 Outcome
 IceBot chatbot widget successfully added to the application. It floats over every screen, answers natural-language questions about all Iceberg concepts and platform features, and guides users who feel lost exploring the simulator.
+
+---
+
+## 📅 Turn 8 — 2026-09-04T13:19:30+05:45
+
+### 👤 User Request
+> `<design-system># Design Style: Minimalist Modern ...</design-system> change ui/ux`
+
+### 🎯 Intent & Scope
+Integrate the **Minimalist Modern** design system across the entire application:
+- Dual-Font Typography System: **Calistoga** (display/headlines) + **Inter** (UI/body) + **JetBrains Mono** (labels, code, badges).
+- Signature Electric Blue Gradient (`#0052FF` → `#4D7CFF`) on primary CTAs, active pills, text highlights, and featured strokes.
+- High-contrast chromatic tokens: warm off-white canvas (`#FAFAFA`) and deep slate (`#0F172A`), with complementary dark mode surfaces (`#1E293B`) and borders (`#334155`).
+- Tactile layered shadow system: `shadow-accent` and `shadow-accent-lg`.
+- Section labels: pill badges with dot indicator and uppercase monospace letter-spacing.
+- Maintain 100% functionality of all Iceberg engine components, simulation handlers, and queries.
+
+### 🛠️ Actions Taken & Tool Executions
+1. **Fonts & Tokens Integration**:
+   - Updated [`index.html`](file:///e:/Dlytica/iceberg_sim/index.html) to import Google Fonts: **Calistoga**, **Inter**, and **JetBrains Mono**.
+   - Updated [`tailwind.config.js`](file:///e:/Dlytica/iceberg_sim/tailwind.config.js) with `calistoga` font family, design system colors (`accent: #0052FF`, `accentSecondary: #4D7CFF`), shadows (`shadow-accent`, `shadow-accent-lg`), and keyframe animations (`float`, `pulse-slow`, `glow-pulse`).
+   - Updated [`src/index.css`](file:///e:/Dlytica/iceberg_sim/src/index.css) to declare CSS custom properties, `.gradient-text`, `.btn-signature-primary`, `.section-label`, `.card-signature`, and 32px canvas dot grid pattern.
+2. **Component Upgrades**:
+   - [`HeaderNav.tsx`](file:///e:/Dlytica/iceberg_sim/src/components/HeaderNav.tsx): Calistoga typography, Electric Blue gradient logo and text highlights, modern pill status badges, tactile theme toggle.
+   - [`ControlPanel.tsx`](file:///e:/Dlytica/iceberg_sim/src/components/ControlPanel.tsx): Minimalist tab strip, section-label badges, `btn-signature-primary` buttons, refined inputs with focus rings.
+   - [`LineageGraphCanvas.tsx`](file:///e:/Dlytica/iceberg_sim/src/components/LineageGraphCanvas.tsx): Clean node cards, Electric Blue target/active nodes, subtle background grid, glassmorphism toolbar.
+   - [`TimeTravelSlider.tsx`](file:///e:/Dlytica/iceberg_sim/src/components/TimeTravelSlider.tsx): Section badges, Electric Blue slider scrubber, return-to-head CTA.
+   - [`QueryVisualizer.tsx`](file:///e:/Dlytica/iceberg_sim/src/components/QueryVisualizer.tsx): Calistoga header, section-label chips, `btn-signature-primary` query execution, 5-stage trace cards.
+   - [`MetadataInspector.tsx`](file:///e:/Dlytica/iceberg_sim/src/components/MetadataInspector.tsx): Calistoga drawer title, monospace tab strip, elevated cards, high-contrast JSON viewer.
+   - [`DataTableModal.tsx`](file:///e:/Dlytica/iceberg_sim/src/components/DataTableModal.tsx) & [`MetadataModal.tsx`](file:///e:/Dlytica/iceberg_sim/src/components/MetadataModal.tsx): Calistoga modal headlines, section-label badges, clean table grids, download CTAs.
+   - [`GuidedTour.tsx`](file:///e:/Dlytica/iceberg_sim/src/components/GuidedTour.tsx): Calistoga headlines, Electric Blue active step pill indicator, confetti completion.
+   - [`IcebergChatbot.tsx`](file:///e:/Dlytica/iceberg_sim/src/components/IcebergChatbot.tsx): Floating launcher with Electric Blue gradient & `shadow-accent-lg`, Calistoga "IceBot" header, matching bubble styles.
+   - [`App.tsx`](file:///e:/Dlytica/iceberg_sim/src/App.tsx): Root container updated to design system background `#FAFAFA` and slate `#0F172A`.
+3. **Quality Assurance**:
+   - `npm run lint` → 0 warnings, 0 errors.
+   - `npm run build` → Built in 785ms with 0 errors.
+
+### 🏁 Outcome
+The entire simulator has been visually transformed according to the **Minimalist Modern** design system. The user experience is cohesive, distinct, and premium, while preserving all simulation capabilities.
+
