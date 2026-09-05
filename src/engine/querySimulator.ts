@@ -150,6 +150,11 @@ export function executeQuerySimulation(
 
   const candidateDataEntries: ManifestEntry[] = [];
   const activeDeletePositionsByFile: Record<string, Set<number>> = {};
+  const activeEqualityDeletes: Array<{
+    file_path: string;
+    equality_ids: number[];
+    equality_rows: Record<string, any>[];
+  }> = [];
   let totalDataFilesEvaluated = 0;
 
   scannedManifestPaths.forEach(mPath => {
@@ -157,14 +162,23 @@ export function executeQuerySimulation(
     if (!doc) return;
 
     if (doc.content === 1) {
-      // Positional delete manifest entries
+      // Delete manifest entries (Positional: content 1, Equality: content 2)
       doc.entries.forEach(e => {
-        if (e.status !== 2 && e.data_file.referenced_data_file && e.data_file.delete_positions) {
+        if (e.status === 2) return;
+        if (e.data_file.content === 1 && e.data_file.referenced_data_file && e.data_file.delete_positions) {
           const target = e.data_file.referenced_data_file;
           if (!activeDeletePositionsByFile[target]) {
             activeDeletePositionsByFile[target] = new Set();
           }
           e.data_file.delete_positions.forEach(pos => activeDeletePositionsByFile[target].add(pos));
+        } else if (e.data_file.content === 2) {
+          const eqStorage = state.dataFileStorage?.[e.data_file.file_path];
+          const eqRows = eqStorage?.rows || e.data_file.rows_data || [];
+          activeEqualityDeletes.push({
+            file_path: e.data_file.file_path,
+            equality_ids: e.data_file.equality_ids || [],
+            equality_rows: eqRows
+          });
         }
       });
       return;
@@ -200,28 +214,41 @@ export function executeQuerySimulation(
     details: stage4Details
   });
 
-  // 5. Stage 5: Data File Scan & MoR Delete Reconciliation
+  // 5. Stage 5: Data File Scan & MoR Delete Reconciliation (Positional + Equality)
   const matchingRows: Record<string, any>[] = [];
   let recordsEvaluatedCount = 0;
   let deletesAppliedCount = 0;
+  let equalityDeletesAppliedCount = 0;
   const stage5Details: string[] = [];
 
   candidateDataEntries.forEach(entry => {
     const dataFile = entry.data_file;
-    const rawRows = dataFile.rows_data || [];
+    // Read physical rows from Parquet file storage (fallback to dataFile.rows_data)
+    const rawRows = state.dataFileStorage?.[dataFile.file_path]?.rows || dataFile.rows_data || [];
     const deletePositions = activeDeletePositionsByFile[dataFile.file_path] || new Set();
 
     let fileMatchedCount = 0;
-    let fileDeletedCount = 0;
+    let filePosDeletedCount = 0;
+    let fileEqDeletedCount = 0;
 
     rawRows.forEach((row, idx) => {
       recordsEvaluatedCount++;
 
       // Check MoR positional tombstone
       if (deletePositions.has(idx)) {
-        fileDeletedCount++;
+        filePosDeletedCount++;
         deletesAppliedCount++;
-        return; // Filtered out by Merge-on-Read
+        return; // Filtered out by Merge-on-Read positional delete
+      }
+
+      // Check MoR equality tombstone
+      const isDeletedByEquality = activeEqualityDeletes.some(eq =>
+        eq.equality_rows.some(eqRow => Object.keys(eqRow).every(k => eqRow[k] === row[k]))
+      );
+      if (isDeletedByEquality) {
+        fileEqDeletedCount++;
+        equalityDeletesAppliedCount++;
+        return; // Filtered out by Merge-on-Read equality delete
       }
 
       // Check row predicate match
@@ -234,28 +261,51 @@ export function executeQuerySimulation(
       }
     });
 
-    stage5Details.push(`Read '${dataFile.file_path.split('/').pop()}': ${rawRows.length} raw rows -> ${fileDeletedCount} MoR deletes subtracted -> ${fileMatchedCount} rows matched query.`);
+    stage5Details.push(`Read '${dataFile.file_path.split('/').pop()}': ${rawRows.length} raw rows -> ${filePosDeletedCount} positional, ${fileEqDeletedCount} equality deletes subtracted -> ${fileMatchedCount} rows matched query.`);
   });
 
   traces.push({
     stage: 5,
     name: 'Data File Scan & MoR Reconciliation',
-    description: `Read surviving ${candidateDataEntries.length} Parquet file(s), applied ${deletesAppliedCount} positional delete(s), returned ${matchingRows.length} record(s).`,
+    description: `Read surviving ${candidateDataEntries.length} Parquet file(s), applied ${deletesAppliedCount} positional & ${equalityDeletesAppliedCount} equality delete(s), returned ${matchingRows.length} record(s).`,
     status: 'scanned',
     recordsEvaluated: recordsEvaluatedCount,
     recordsReturned: matchingRows.length,
     deletesAppliedCount,
+    equalityDeletesAppliedCount,
     details: stage5Details
   });
 
   const totalFiles = totalDataFilesEvaluated + prunedManifestPaths.length;
   const skippedFiles = prunedDataFilePaths.length + prunedManifestPaths.length;
   const ioAvoidancePercentage = totalFiles > 0 ? Math.round((skippedFiles / totalFiles) * 100) : 100;
+  const execTime = Math.max(0.1, parseFloat((performance.now() - startTime).toFixed(2)));
+  const totalDeletes = deletesAppliedCount + equalityDeletesAppliedCount;
+
+  const queryPerfMetric = {
+    id: `perf-query-${Date.now()}`,
+    timestamp: Date.now(),
+    operation: 'QUERY' as const,
+    operationLabel: 'QUERY (SELECT Scan)',
+    mode: 'query' as const,
+    durationMs: execTime,
+    recordsAffected: matchingRows.length,
+    filesWritten: 0,
+    filesRewritten: 0,
+    filesRead: candidateDataEntries.length,
+    bytesWritten: 0,
+    bytesRead: candidateDataEntries.reduce((acc, e) => acc + e.data_file.file_size_in_bytes, 0),
+    reusedManifestCount: 0,
+    details: `Scanned ${candidateDataEntries.length} Parquet file(s) in ${execTime}ms. Evaluated ${recordsEvaluatedCount} row(s), pruned ${prunedDataFilePaths.length} file(s). Applied ${deletesAppliedCount} positional & ${equalityDeletesAppliedCount} equality delete(s).`,
+    efficiencyVerdict: totalDeletes > 0
+      ? `MoR Read Overhead: Reconciled ${totalDeletes} delete tombstone(s) at query time. Consider running compaction to eliminate read merge overhead.`
+      : `Optimal Read: Direct scan with 0 delete tombstones to reconcile (Clean / CoW read).`
+  };
 
   return {
     sql: sqlQuery,
     snapshotId: snapshot['snapshot-id'],
-    executionTimeMs: Math.max(1, Math.round(performance.now() - startTime)),
+    executionTimeMs: execTime,
     stages: traces,
     matchingRows,
     totalDataFiles: totalDataFilesEvaluated,
@@ -268,6 +318,7 @@ export function executeQuerySimulation(
     prunedManifestPaths,
     scannedManifestPaths,
     prunedDataFilePaths,
-    scannedDataFilePaths
+    scannedDataFilePaths,
+    performanceMetric: queryPerfMetric
   };
 }

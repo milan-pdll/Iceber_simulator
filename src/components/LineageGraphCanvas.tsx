@@ -36,6 +36,8 @@ interface LineageGraphCanvasProps {
   selectedNode: SelectedNodeType | null;
   queryResult: QueryExecutionResult | null;
   isTimeTravelActive: boolean;
+  retentionSnapshots?: number;
+  onApplyRetentionNow?: () => void;
 }
 
 interface GraphNode {
@@ -337,6 +339,8 @@ export const LineageGraphCanvas: React.FC<LineageGraphCanvasProps> = ({
         validEntries.forEach((entry, fIdx) => {
           const df = entry.data_file;
           const isPosDelete = df.content === 1;
+          const isEqDelete = df.content === 2;
+          const isDelete = isPosDelete || isEqDelete;
           const fileName = getFilename(df.file_path);
 
           let filePruneStatus: GraphNode['pruneStatus'] = 'none';
@@ -359,13 +363,25 @@ export const LineageGraphCanvas: React.FC<LineageGraphCanvasProps> = ({
 
           const fileNode: GraphNode = {
             id: `node-file-${df.file_path}`,
-            type: isPosDelete ? 'delete-file' : 'data-file',
-            label: isPosDelete ? 'Positional Delete (.delete)' : 'Data File (.parquet)',
+            type: isDelete ? 'delete-file' : 'data-file',
+            label: isEqDelete
+              ? 'Equality Delete (.parquet)'
+              : isPosDelete
+              ? 'Positional Delete (.delete)'
+              : 'Data File (.parquet)',
             sublabel: fileName,
-            badge: isPosDelete ? `-${df.record_count} row offset(s)` : `${df.record_count} row(s) • ${formatBytes(df.file_size_in_bytes)}`,
-            badgeColor: isPosDelete ? 'bg-rose-50 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-500/40' : 'bg-emerald-50 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/40',
-            color: isPosDelete ? '#DC2626' : '#16A34A',
-            borderColor: isPosDelete ? '#991B1B' : '#15803D',
+            badge: isEqDelete
+              ? `-${df.record_count} eq key(s) • [${df.equality_ids?.join(',') || 'col'}]`
+              : isPosDelete
+              ? `-${df.record_count} row offset(s)`
+              : `${df.record_count} row(s) • ${formatBytes(df.file_size_in_bytes)}`,
+            badgeColor: isEqDelete
+              ? 'bg-amber-50 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-500/40'
+              : isPosDelete
+              ? 'bg-rose-50 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-500/40'
+              : 'bg-emerald-50 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/40',
+            color: isEqDelete ? '#D97706' : (isPosDelete ? '#DC2626' : '#16A34A'),
+            borderColor: isEqDelete ? '#B45309' : (isPosDelete ? '#991B1B' : '#15803D'),
             layerIndex: 5,
             x: startX + colSpacing * 5,
             y: fileNodeY,
@@ -385,7 +401,7 @@ export const LineageGraphCanvas: React.FC<LineageGraphCanvasProps> = ({
             fromY: mNode.y + nodeHeight / 2,
             toX: fileNode.x,
             toY: fileNode.y + nodeHeight / 2,
-            color: isPosDelete ? '#DC2626' : '#16A34A',
+            color: isEqDelete ? '#D97706' : (isPosDelete ? '#DC2626' : '#16A34A'),
             isPruned: filePruneStatus === 'pruned-manifest' || filePruneStatus === 'pruned-stats'
           });
         });

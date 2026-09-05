@@ -147,10 +147,29 @@ export interface DataFileMetadata {
   lower_bounds: Record<number, any>; // col_id -> min value
   upper_bounds: Record<number, any>; // col_id -> max value
   split_offsets?: number[];
-  // Simulation payloads
-  rows_data?: Record<string, any>[]; // Actual in-memory rows simulated
-  referenced_data_file?: string; // For positional delete files
+  // Iceberg Spec v2 delete file metadata
+  equality_ids?: number[]; // For equality delete files (content: 2): column field IDs
+  referenced_data_file?: string; // For positional delete files: target data file
   delete_positions?: number[]; // For positional delete files: row positions deleted
+  // Simulation payload (retained optionally for backward-compatibility)
+  rows_data?: Record<string, any>[];
+}
+
+/**
+ * Physical Simulated Parquet File Storage Representation
+ * Stores the actual rows and delete payloads persisted in object storage.
+ */
+export interface ParquetStorageFile {
+  file_path: string;
+  file_format: 'PARQUET';
+  content_type: 'data' | 'position_deletes' | 'equality_deletes';
+  record_count: number;
+  size_in_bytes: number;
+  rows: Record<string, any>[]; // Actual rows stored in the physical parquet file
+  referenced_data_file?: string; // For positional delete files
+  delete_positions?: number[]; // For positional delete files
+  equality_ids?: number[]; // For equality delete files
+  equality_predicates?: Record<string, any>; // For equality delete files
 }
 
 export interface ManifestEntry {
@@ -178,6 +197,29 @@ export interface StorageObject {
   createdAt: number;
   isOrphan: boolean;
   referencedBySnapshots: number[];
+}
+
+/**
+ * Operation Performance & Latency Benchmark Metric
+ */
+export interface OperationPerformanceMetric {
+  id: string;
+  timestamp: number;
+  operation: 'INSERT' | 'DELETE_MOR_POS' | 'DELETE_MOR_EQ' | 'DELETE_COW' | 'UPDATE_MOR' | 'UPDATE_COW' | 'MERGE_MOR' | 'MERGE_COW' | 'COMPACT' | 'QUERY';
+  operationLabel: string;
+  mode?: 'mor' | 'cow' | 'append' | 'query' | 'replace';
+  durationMs: number;
+  recordsAffected: number;
+  filesWritten: number;
+  filesRewritten: number;
+  filesRead: number;
+  bytesWritten: number;
+  bytesRead: number;
+  reusedManifestCount: number;
+  details: string;
+  efficiencyVerdict: string;
+  writeEfficiencyVerdict?: string;
+  readEfficiencyVerdict?: string;
 }
 
 /**
@@ -216,6 +258,7 @@ export interface PruningStageTrace {
   recordsEvaluated?: number;
   recordsReturned?: number;
   deletesAppliedCount?: number;
+  equalityDeletesAppliedCount?: number;
   details: string[];
 }
 
@@ -236,6 +279,7 @@ export interface QueryExecutionResult {
   scannedManifestPaths: string[];
   prunedDataFilePaths: string[];
   scannedDataFilePaths: string[];
+  performanceMetric?: OperationPerformanceMetric;
 }
 
 /**
@@ -249,6 +293,9 @@ export interface TableState {
   metadataHistory: Record<string, IcebergTableMetadataV2>; // location -> metadata
   manifestLists: Record<string, ManifestListEntry[]>; // path -> entries
   manifestFiles: Record<string, ManifestFileDocument>; // path -> document
+  dataFileStorage: Record<string, ParquetStorageFile>; // physical file_path -> parquet data file
   storageObjects: Record<string, StorageObject>; // uri -> object
+  metricsHistory: OperationPerformanceMetric[]; // performance benchmark log
+  lastOperationMetric?: OperationPerformanceMetric; // last executed operation metric
   insights: ArchitecturalInsight[];
 }

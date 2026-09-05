@@ -5,12 +5,14 @@ import {
   initTableState,
   appendRecords,
   deleteRecordsMoR,
+  deleteRecordsEquality,
   deleteRecordsCoW,
   updateRecords,
   mergeRecords,
   compactTable,
   expireSnapshots,
-  purgeOrphanFiles
+  purgeOrphanFiles,
+  applyTableRetentionPolicy
 } from './engine/icebergEngine';
 
 import { HeaderNav } from './components/HeaderNav';
@@ -72,6 +74,20 @@ export function App() {
   const [isTourOpen, setIsTourOpen] = useState<boolean>(false);
   const [isGCSimulatorOpen, setIsGCSimulatorOpen] = useState<boolean>(false);
 
+  // Retention Policy State
+  const [retentionSnapshots, setRetentionSnapshots] = useState<number>(3);
+  const [autoGCOnWrite, setAutoGCOnWrite] = useState<boolean>(false);
+  const [autoPurgeOrphans, setAutoPurgeOrphans] = useState<boolean>(false);
+
+  // Helper: apply retention policy if auto-GC is enabled
+  const withAutoGC = useCallback((state: TableState): TableState => {
+    if (!autoGCOnWrite) return state;
+    return applyTableRetentionPolicy(state, {
+      retainLastSnapshots: retentionSnapshots,
+      autoPurgeOrphans
+    });
+  }, [autoGCOnWrite, retentionSnapshots, autoPurgeOrphans]);
+
   // Scenario Loader
   const handleSelectScenario = useCallback((scenario: ScenarioDefinition) => {
     setActiveScenarioId(scenario.id);
@@ -96,39 +112,54 @@ export function App() {
 
   // Append Mutation
   const handleAppend = useCallback((records: Record<string, any>[], msg?: string) => {
-    setTableState(prev => appendRecords(prev, records, msg));
+    setTableState(prev => withAutoGC(appendRecords(prev, records, msg)));
     setActiveSnapshotId(null); // return to HEAD on new write
-  }, []);
+  }, [withAutoGC]);
 
   // Delete MoR
   const handleDeleteMoR = useCallback((predicate: string, msg?: string) => {
-    setTableState(prev => deleteRecordsMoR(prev, predicate, msg));
+    setTableState(prev => withAutoGC(deleteRecordsMoR(prev, predicate, msg)));
     setActiveSnapshotId(null);
-  }, []);
+  }, [withAutoGC]);
 
   // Delete CoW
   const handleDeleteCoW = useCallback((predicate: string, msg?: string) => {
-    setTableState(prev => deleteRecordsCoW(prev, predicate, msg));
+    setTableState(prev => withAutoGC(deleteRecordsCoW(prev, predicate, msg)));
     setActiveSnapshotId(null);
-  }, []);
+  }, [withAutoGC]);
+
+  // Delete Equality (MoR Spec v2)
+  const handleDeleteEquality = useCallback((predicate: string, msg?: string) => {
+    setTableState(prev => withAutoGC(deleteRecordsEquality(prev, predicate, msg)));
+    setActiveSnapshotId(null);
+  }, [withAutoGC]);
 
   // Update
   const handleUpdate = useCallback((predicate: string, updates: Record<string, any>, mode: 'mor' | 'cow', msg?: string) => {
-    setTableState(prev => updateRecords(prev, predicate, updates, mode, msg));
+    setTableState(prev => withAutoGC(updateRecords(prev, predicate, updates, mode, msg)));
     setActiveSnapshotId(null);
-  }, []);
+  }, [withAutoGC]);
 
   // Merge (Upsert)
   const handleMerge = useCallback((records: Record<string, any>[], matchKey: string, mode: 'mor' | 'cow', msg?: string) => {
-    setTableState(prev => mergeRecords(prev, records, matchKey, mode, msg));
+    setTableState(prev => withAutoGC(mergeRecords(prev, records, matchKey, mode, msg)));
     setActiveSnapshotId(null);
-  }, []);
+  }, [withAutoGC]);
 
   // Compaction
   const handleCompact = useCallback((msg?: string) => {
-    setTableState(prev => compactTable(prev, msg));
+    setTableState(prev => withAutoGC(compactTable(prev, msg)));
     setActiveSnapshotId(null);
-  }, []);
+  }, [withAutoGC]);
+
+  // Apply Retention Policy Manually
+  const handleApplyRetentionNow = useCallback(() => {
+    setTableState(prev => applyTableRetentionPolicy(prev, {
+      retainLastSnapshots: retentionSnapshots,
+      autoPurgeOrphans
+    }));
+    setActiveSnapshotId(null);
+  }, [retentionSnapshots, autoPurgeOrphans]);
 
   // Expire Snapshots
   const handleExpireSnapshots = useCallback((snapshotIds: number[]) => {
@@ -183,6 +214,7 @@ export function App() {
           state={tableState}
           onAppendRecords={handleAppend}
           onDeleteRecordsMoR={handleDeleteMoR}
+          onDeleteRecordsEquality={handleDeleteEquality}
           onDeleteRecordsCoW={handleDeleteCoW}
           onUpdateRecords={handleUpdate}
           onMergeRecords={handleMerge}
@@ -191,6 +223,13 @@ export function App() {
           onPurgeOrphans={handlePurgeOrphans}
           onInitCustomTable={handleInitCustomTable}
           onOpenGCSimulator={() => setIsGCSimulatorOpen(true)}
+          retentionSnapshots={retentionSnapshots}
+          onChangeRetentionSnapshots={setRetentionSnapshots}
+          autoGCOnWrite={autoGCOnWrite}
+          onToggleAutoGCOnWrite={() => setAutoGCOnWrite(p => !p)}
+          autoPurgeOrphans={autoPurgeOrphans}
+          onToggleAutoPurgeOrphans={() => setAutoPurgeOrphans(p => !p)}
+          onApplyRetentionNow={handleApplyRetentionNow}
         />
 
         {/* Center: Main Visual Lineage Canvas & Time Travel Scrubber */}
@@ -203,6 +242,8 @@ export function App() {
               selectedNode={selectedNode}
               queryResult={queryResult}
               isTimeTravelActive={activeSnapshotId !== null}
+              retentionSnapshots={retentionSnapshots}
+              onApplyRetentionNow={handleApplyRetentionNow}
             />
           </div>
 

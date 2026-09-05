@@ -27,7 +27,8 @@ export const DataTableModal: React.FC<DataTableModalProps> = ({
   const currentSchema = currentMetadata?.schemas.find(s => s['schema-id'] === targetSnap?.['schema-id']) || currentMetadata?.schemas[0];
 
   const activeDeletePositionsByFile: Record<string, Set<number>> = {};
-  const rowsByPartition: Record<string, Array<{ row: Record<string, any>; file: string; isDeletedMoR: boolean; rowPos: number }>> = {};
+  const activeEqualityDeletes: Array<{ equality_ids: number[]; rows: Record<string, any>[] }> = [];
+  const rowsByPartition: Record<string, Array<{ row: Record<string, any>; file: string; isDeletedMoR: boolean; deleteType?: 'positional' | 'equality'; rowPos: number }>> = {};
 
   manifestList.forEach(m => {
     const doc = state.manifestFiles[m.manifest_path];
@@ -35,12 +36,20 @@ export const DataTableModal: React.FC<DataTableModalProps> = ({
 
     if (doc.content === 1) {
       doc.entries.forEach(e => {
-        if (e.status !== 2 && e.data_file.referenced_data_file && e.data_file.delete_positions) {
-          const target = e.data_file.referenced_data_file;
-          if (!activeDeletePositionsByFile[target]) {
-            activeDeletePositionsByFile[target] = new Set();
+        if (e.status !== 2) {
+          if (e.data_file.content === 1 && e.data_file.referenced_data_file && e.data_file.delete_positions) {
+            const target = e.data_file.referenced_data_file;
+            if (!activeDeletePositionsByFile[target]) {
+              activeDeletePositionsByFile[target] = new Set();
+            }
+            e.data_file.delete_positions.forEach(pos => activeDeletePositionsByFile[target].add(pos));
+          } else if (e.data_file.content === 2) {
+            const eqRows = state.dataFileStorage?.[e.data_file.file_path]?.rows || e.data_file.rows_data || [];
+            activeEqualityDeletes.push({
+              equality_ids: e.data_file.equality_ids || [],
+              rows: eqRows
+            });
           }
-          e.data_file.delete_positions.forEach(pos => activeDeletePositionsByFile[target].add(pos));
         }
       });
     }
@@ -61,14 +70,20 @@ export const DataTableModal: React.FC<DataTableModalProps> = ({
         rowsByPartition[partKey] = [];
       }
 
-      const rows = e.data_file.rows_data || [];
+      const rows = state.dataFileStorage?.[e.data_file.file_path]?.rows || e.data_file.rows_data || [];
       const delPositions = activeDeletePositionsByFile[e.data_file.file_path] || new Set();
 
       rows.forEach((row, idx) => {
+        const isPosDeleted = delPositions.has(idx);
+        const isEqDeleted = activeEqualityDeletes.some(eq =>
+          eq.rows.some(eqRow => Object.keys(eqRow).every(k => eqRow[k] === row[k]))
+        );
+
         rowsByPartition[partKey].push({
           row,
           file: getFilename(e.data_file.file_path),
-          isDeletedMoR: delPositions.has(idx),
+          isDeletedMoR: isPosDeleted || isEqDeleted,
+          deleteType: isPosDeleted ? 'positional' : (isEqDeleted ? 'equality' : undefined),
           rowPos: idx
         });
       });
@@ -156,7 +171,7 @@ export const DataTableModal: React.FC<DataTableModalProps> = ({
                           <td className="p-3">
                             {item.isDeletedMoR ? (
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/40">
-                                Tombstoned (MoR)
+                                {item.deleteType === 'equality' ? 'MoR Eq Delete' : 'MoR Pos Delete'}
                               </span>
                             ) : (
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/40">

@@ -10,7 +10,9 @@ import {
   TableState,
   StorageObject,
   ArchitecturalInsight,
-  SnapshotSummary
+  SnapshotSummary,
+  ParquetStorageFile,
+  OperationPerformanceMetric
 } from './types';
 import {
   computeColumnStats,
@@ -19,6 +21,18 @@ import {
   parseSimpleSqlPredicates,
   matchesRowPredicates
 } from './statsUtils';
+
+/**
+ * Retrieve physical table rows from simulated Parquet storage.
+ * Per Apache Iceberg Spec v2, rows are strictly maintained inside physical
+ * Parquet data/delete files and not inside the manifest files (.avro).
+ */
+export function getPhysicalRows(state: TableState, dataFile: DataFileMetadata): Record<string, any>[] {
+  if (state.dataFileStorage && state.dataFileStorage[dataFile.file_path]) {
+    return state.dataFileStorage[dataFile.file_path].rows;
+  }
+  return dataFile.rows_data || [];
+}
 
 function generateSnapshotId(sequenceNumber: number = 0): number {
   return sequenceNumber;
@@ -147,6 +161,7 @@ export function initTableState(
       [s0ManifestListPath]: []
     },
     manifestFiles: {},
+    dataFileStorage: {},
     storageObjects: {
       [v1Location]: {
         uri: v1Location,
@@ -165,6 +180,7 @@ export function initTableState(
         referencedBySnapshots: [s0Id]
       }
     },
+    metricsHistory: [],
     insights: [initialInsight]
   };
 }
@@ -179,6 +195,7 @@ export function appendRecords(
 ): TableState {
   if (records.length === 0) return state;
 
+  const startTime = performance.now();
   const currentMetadata = state.metadataHistory[state.catalogPointer.currentMetadataLocation];
   const currentSchema = currentMetadata.schemas.find(s => s['schema-id'] === currentMetadata['current-schema-id'])!;
   const partitionSpec = currentMetadata['partition-specs'].find(p => p['spec-id'] === currentMetadata['default-spec-id'])!;
@@ -207,6 +224,7 @@ export function appendRecords(
   // 2. Generate Parquet Data Files and Manifest Entries
   const newManifestEntries: ManifestEntry[] = [];
   const newStorageObjects: Record<string, StorageObject> = {};
+  const newDataFileStorage: Record<string, ParquetStorageFile> = {};
   const dataFilesForSummary: DataFileMetadata[] = [];
 
   let addedBytes = 0;
@@ -217,6 +235,8 @@ export function appendRecords(
     const dataFilePath = `${currentMetadata.location}/data/${partKey}/0000${idx}-${fileUuid}.parquet`;
     const stats = computeColumnStats(bucket.rows, currentSchema.fields);
 
+    // Per Apache Iceberg Spec v2, manifest entries ONLY contain file metadata and stats.
+    // Raw row data is maintained strictly at the physical .parquet storage file!
     const dataFile: DataFileMetadata = {
       content: 0, // DATA
       file_path: dataFilePath,
@@ -228,13 +248,22 @@ export function appendRecords(
       value_counts: stats.value_counts,
       null_value_counts: stats.null_value_counts,
       lower_bounds: stats.lower_bounds,
-      upper_bounds: stats.upper_bounds,
-      rows_data: bucket.rows
+      upper_bounds: stats.upper_bounds
     };
 
     dataFilesForSummary.push(dataFile);
     addedBytes += stats.file_size_in_bytes;
     addedRecords += bucket.rows.length;
+
+    // Physical Parquet file storage maintains the actual rows
+    newDataFileStorage[dataFilePath] = {
+      file_path: dataFilePath,
+      file_format: 'PARQUET',
+      content_type: 'data',
+      record_count: bucket.rows.length,
+      size_in_bytes: stats.file_size_in_bytes,
+      rows: bucket.rows
+    };
 
     newManifestEntries.push({
       status: 1, // ADDED
@@ -402,6 +431,25 @@ export function appendRecords(
     }
   };
 
+  const durationMs = Math.max(0.1, parseFloat((performance.now() - startTime).toFixed(2)));
+  const perfMetric: OperationPerformanceMetric = {
+    id: `perf-${Date.now()}-${newSnapshotId}`,
+    timestamp: Date.now(),
+    operation: 'INSERT',
+    operationLabel: 'INSERT (Append)',
+    mode: 'append',
+    durationMs,
+    recordsAffected: addedRecords,
+    filesWritten: newManifestEntries.length,
+    filesRewritten: 0,
+    filesRead: reusedManifestCount,
+    bytesWritten: addedBytes + manifestSize + manifestListSize,
+    bytesRead: 0,
+    reusedManifestCount,
+    details: `Appended ${addedRecords} records in ${newManifestEntries.length} Parquet file(s) across ${Object.keys(partitionBuckets).length} partition(s).`,
+    efficiencyVerdict: `⚡ Fast Append: O(1) manifest reuse. 0 existing data files rewritten.`
+  };
+
   return {
     catalogPointer: {
       ...state.catalogPointer,
@@ -419,11 +467,17 @@ export function appendRecords(
       ...state.manifestFiles,
       [manifestFilePath]: manifestDoc
     },
+    dataFileStorage: {
+      ...(state.dataFileStorage || {}),
+      ...newDataFileStorage
+    },
     storageObjects: {
       ...state.storageObjects,
       ...newStorageObjects
     },
-    insights: [insight, ...state.insights]
+    metricsHistory: [perfMetric, ...(state.metricsHistory || [])],
+    lastOperationMetric: perfMetric,
+    insights: state.insights || [],
   };
 }
 
@@ -436,6 +490,7 @@ export function deleteRecordsMoR(
   predicateStr: string,
   commitMsg: string = 'Merge-on-Read (MoR) Positional Delete'
 ): TableState {
+  const startTime = performance.now();
   const currentMetadata = state.metadataHistory[state.catalogPointer.currentMetadataLocation];
   if (currentMetadata['current-snapshot-id'] === null) return state;
 
@@ -456,7 +511,7 @@ export function deleteRecordsMoR(
     mDoc.entries.forEach(entry => {
       if (entry.status === 2) return; // Skip already deleted entries
 
-      const rows = entry.data_file.rows_data || [];
+      const rows = getPhysicalRows(state, entry.data_file);
       const matchingIndices: number[] = [];
       const matchingRows: Record<string, any>[] = [];
 
@@ -487,6 +542,7 @@ export function deleteRecordsMoR(
   const newMetadataLocation = `${currentMetadata.location}/metadata/v${versionNum}.metadata.json`;
 
   const newStorageObjects: Record<string, StorageObject> = {};
+  const newDataFileStorage: Record<string, ParquetStorageFile> = {};
   const newDeleteManifestEntries: ManifestEntry[] = [];
 
   // Generate Positional Delete Files (.parquet)
@@ -495,6 +551,7 @@ export function deleteRecordsMoR(
     const deleteFilePath = `${currentMetadata.location}/data/deletes/del-${idx}-${delUuid}.parquet`;
     const deleteFileSize = 1024 + target.deletedPositions.length * 32;
 
+    // Per Apache Iceberg Spec v2, manifest entries ONLY contain file metadata and stats.
     const deleteFileMeta: DataFileMetadata = {
       content: 1, // POSITION_DELETES
       file_path: deleteFilePath,
@@ -508,8 +565,7 @@ export function deleteRecordsMoR(
       lower_bounds: {},
       upper_bounds: {},
       referenced_data_file: dataFilePath,
-      delete_positions: target.deletedPositions,
-      rows_data: target.deletedRows
+      delete_positions: target.deletedPositions
     };
 
     newDeleteManifestEntries.push({
@@ -526,6 +582,18 @@ export function deleteRecordsMoR(
       createdAt: Date.now(),
       isOrphan: false,
       referencedBySnapshots: [newSnapshotId]
+    };
+
+    // The physical .delete parquet file explicitly contains the deleted rows & position offsets!
+    newDataFileStorage[deleteFilePath] = {
+      file_path: deleteFilePath,
+      file_format: 'PARQUET',
+      content_type: 'position_deletes',
+      record_count: target.deletedPositions.length,
+      size_in_bytes: deleteFileSize,
+      rows: target.deletedRows,
+      referenced_data_file: dataFilePath,
+      delete_positions: target.deletedPositions
     };
   });
 
@@ -570,18 +638,14 @@ export function deleteRecordsMoR(
     }
   ];
 
-  // Re-link previous manifests
-  manifestList.forEach(m => {
+  // Reuse unchanged parent manifests O(1)
+  manifestList.forEach(existingM => {
     newManifestListEntries.push({
-      ...m,
-      reused_from_snapshot_id: m.added_snapshot_id
+      ...existingM,
+      reused_from_snapshot_id: existingM.added_snapshot_id
     });
-    if (state.storageObjects[m.manifest_path]) {
-      state.storageObjects[m.manifest_path].referencedBySnapshots.push(newSnapshotId);
-    }
   });
 
-  // Create Manifest List File
   const manifestListUuid = Math.random().toString(36).substring(2, 9);
   const manifestListPath = `${currentMetadata.location}/metadata/snap-${newSnapshotId}-${manifestListUuid}.avro`;
   const manifestListSize = 1024 + newManifestListEntries.length * 512;
@@ -595,12 +659,14 @@ export function deleteRecordsMoR(
     referencedBySnapshots: [newSnapshotId]
   };
 
-  const prevTotalDataFiles = parseInt(currentSnapshot.summary['total-data-files'] || '0', 10);
-  const prevTotalDeleteFiles = parseInt(currentSnapshot.summary['total-delete-files'] || '0', 10);
-  const prevTotalRecords = parseInt(currentSnapshot.summary['total-records'] || '0', 10);
+  // 6. Update Snapshot Summary
+  const prevSummary = currentSnapshot.summary;
+  const prevTotalDataFiles = parseInt(prevSummary['total-data-files'] || '0', 10);
+  const prevTotalDeleteFiles = parseInt(prevSummary['total-delete-files'] || '0', 10);
+  const prevTotalRecords = parseInt(prevSummary['total-records'] || '0', 10);
 
   const snapshotSummary: SnapshotSummary = {
-    operation: 'overwrite',
+    operation: 'delete',
     'added-delete-files': String(newDeleteManifestEntries.length),
     'deleted-records': String(totalDeletedCount),
     'total-data-files': String(prevTotalDataFiles),
@@ -646,6 +712,25 @@ export function deleteRecordsMoR(
     referencedBySnapshots: [newSnapshotId]
   };
 
+  const durationMs = Math.max(0.1, parseFloat((performance.now() - startTime).toFixed(2)));
+  const perfMetric: OperationPerformanceMetric = {
+    id: `perf-${Date.now()}-${newSnapshotId}`,
+    timestamp: Date.now(),
+    operation: 'DELETE_MOR_POS',
+    operationLabel: 'DELETE (MoR Positional)',
+    mode: 'mor',
+    durationMs,
+    recordsAffected: totalDeletedCount,
+    filesWritten: newDeleteManifestEntries.length,
+    filesRewritten: 0,
+    filesRead: manifestList.length,
+    bytesWritten: Object.values(newStorageObjects).reduce((a, b) => a + b.sizeBytes, 0),
+    bytesRead: 0,
+    reusedManifestCount: manifestList.length,
+    details: `Tombstoned ${totalDeletedCount} row(s) across ${newDeleteManifestEntries.length} positional delete Parquet file(s). 0 data files rewritten.`,
+    efficiencyVerdict: `⚡ MoR Positional Write: High write efficiency (0 data files rewritten, ${newDeleteManifestEntries.length} delete file(s) written). Trade-off: Read queries must reconcile position offsets.`
+  };
+
   const insight: ArchitecturalInsight = {
     id: `insight-${Date.now()}-${newSnapshotId}`,
     timestamp: Date.now(),
@@ -677,10 +762,298 @@ export function deleteRecordsMoR(
       ...state.manifestFiles,
       [delManifestPath]: delManifestDoc
     },
+    dataFileStorage: {
+      ...(state.dataFileStorage || {}),
+      ...newDataFileStorage
+    },
     storageObjects: {
       ...state.storageObjects,
       ...newStorageObjects
     },
+    metricsHistory: [perfMetric, ...(state.metricsHistory || [])],
+    lastOperationMetric: perfMetric,
+    insights: [insight, ...state.insights]
+  };
+}
+
+/**
+ * Perform a DELETE transaction using Merge-on-Read (MoR) with EQUALITY DELETES (content: 2).
+ * Writes an Equality Delete Parquet file containing values of equality columns.
+ * Per Apache Iceberg Spec v2, equality delete files specify equality_ids (field IDs of the columns).
+ */
+export function deleteRecordsEquality(
+  state: TableState,
+  predicateStr: string,
+  commitMsg: string = 'Merge-on-Read (MoR) Equality Delete'
+): TableState {
+  const startTime = performance.now();
+  const currentMetadata = state.metadataHistory[state.catalogPointer.currentMetadataLocation];
+  if (currentMetadata['current-snapshot-id'] === null) return state;
+
+  const predicates = parseSimpleSqlPredicates(predicateStr);
+  if (predicates.length === 0) return state;
+
+  const currentSchema = currentMetadata.schemas.find(s => s['schema-id'] === currentMetadata['current-schema-id'])!;
+  const currentSnapshot = currentMetadata.snapshots.find(s => s['snapshot-id'] === currentMetadata['current-snapshot-id'])!;
+  const manifestList = state.manifestLists[currentSnapshot['manifest-list']] || [];
+
+  // Identify the equality field IDs from the predicate
+  const equalityFieldIds: number[] = [];
+  predicates.forEach(p => {
+    const field = currentSchema.fields.find(f => f.name.toLowerCase() === p.field.toLowerCase());
+    if (field && !equalityFieldIds.includes(field.id)) {
+      equalityFieldIds.push(field.id);
+    }
+  });
+
+  if (equalityFieldIds.length === 0) return state;
+
+  // Scan current active data files to find matching records to delete
+  const matchingRows: Record<string, any>[] = [];
+  manifestList.forEach(mListEntry => {
+    const mDoc = state.manifestFiles[mListEntry.manifest_path];
+    if (!mDoc || mDoc.content !== 0) return;
+
+    mDoc.entries.forEach(entry => {
+      if (entry.status === 2) return;
+      const rows = getPhysicalRows(state, entry.data_file);
+      rows.forEach(row => {
+        if (matchesRowPredicates(row, predicates)) {
+          matchingRows.push(row);
+        }
+      });
+    });
+  });
+
+  if (matchingRows.length === 0) return state;
+
+  const newSequenceNumber = currentMetadata['last-sequence-number'] + 1;
+  const newSnapshotId = generateSnapshotId(newSequenceNumber);
+  const parentSnapshotId = currentMetadata['current-snapshot-id'];
+  const versionNum = Object.keys(state.metadataHistory).length + 1;
+  const newMetadataLocation = `${currentMetadata.location}/metadata/v${versionNum}.metadata.json`;
+
+  const newStorageObjects: Record<string, StorageObject> = {};
+  const newDataFileStorage: Record<string, ParquetStorageFile> = {};
+  const newDeleteManifestEntries: ManifestEntry[] = [];
+
+  // Generate Equality Delete File (.parquet)
+  const delUuid = Math.random().toString(36).substring(2, 9);
+  const eqDeleteFilePath = `${currentMetadata.location}/data/deletes/eq-del-0-${delUuid}.parquet`;
+  const eqDeleteFileSize = 1024 + matchingRows.length * 48;
+
+  const eqDeleteFileMeta: DataFileMetadata = {
+    content: 2, // 2: EQUALITY_DELETES
+    file_path: eqDeleteFilePath,
+    file_format: 'PARQUET',
+    partition: {},
+    record_count: matchingRows.length,
+    file_size_in_bytes: eqDeleteFileSize,
+    column_sizes: {},
+    value_counts: {},
+    null_value_counts: {},
+    lower_bounds: {},
+    upper_bounds: {},
+    equality_ids: equalityFieldIds
+  };
+
+  newDeleteManifestEntries.push({
+    status: 1, // ADDED
+    snapshot_id: newSnapshotId,
+    sequence_number: newSequenceNumber,
+    data_file: eqDeleteFileMeta
+  });
+
+  newStorageObjects[eqDeleteFilePath] = {
+    uri: eqDeleteFilePath,
+    type: 'delete',
+    sizeBytes: eqDeleteFileSize,
+    createdAt: Date.now(),
+    isOrphan: false,
+    referencedBySnapshots: [newSnapshotId]
+  };
+
+  newDataFileStorage[eqDeleteFilePath] = {
+    file_path: eqDeleteFilePath,
+    file_format: 'PARQUET',
+    content_type: 'equality_deletes',
+    record_count: matchingRows.length,
+    size_in_bytes: eqDeleteFileSize,
+    rows: matchingRows,
+    equality_ids: equalityFieldIds,
+    equality_predicates: predicates.reduce((acc, p) => ({ ...acc, [p.field]: p.value }), {})
+  };
+
+  // Create Delete Manifest File (.avro)
+  const delManifestUuid = Math.random().toString(36).substring(2, 9);
+  const delManifestPath = `${currentMetadata.location}/metadata/${delManifestUuid}-delete-m0.avro`;
+  const delManifestDoc: ManifestFileDocument = {
+    path: delManifestPath,
+    schema_id: currentMetadata['current-schema-id'],
+    partition_spec_id: currentMetadata['default-spec-id'],
+    content: 1, // DELETES manifest
+    entries: newDeleteManifestEntries
+  };
+
+  const delManifestSize = 2048 + newDeleteManifestEntries.length * 256;
+  newStorageObjects[delManifestPath] = {
+    uri: delManifestPath,
+    type: 'manifest',
+    sizeBytes: delManifestSize,
+    createdAt: Date.now(),
+    isOrphan: false,
+    referencedBySnapshots: [newSnapshotId]
+  };
+
+  // Manifest List: New Delete Manifest + Reused Existing Manifests
+  const newManifestListEntries: ManifestListEntry[] = [
+    {
+      manifest_path: delManifestPath,
+      manifest_length: delManifestSize,
+      partition_spec_id: currentMetadata['default-spec-id'],
+      content: 1, // DELETES
+      sequence_number: newSequenceNumber,
+      min_sequence_number: newSequenceNumber,
+      added_snapshot_id: newSnapshotId,
+      added_data_files_count: 0,
+      existing_data_files_count: 0,
+      deleted_data_files_count: 0,
+      added_rows_count: 0,
+      existing_rows_count: 0,
+      deleted_rows_count: matchingRows.length,
+      partitions: {}
+    }
+  ];
+
+  manifestList.forEach(existingM => {
+    newManifestListEntries.push({
+      ...existingM,
+      reused_from_snapshot_id: existingM.added_snapshot_id
+    });
+  });
+
+  const manifestListUuid = Math.random().toString(36).substring(2, 9);
+  const manifestListPath = `${currentMetadata.location}/metadata/snap-${newSnapshotId}-${manifestListUuid}.avro`;
+  const manifestListSize = 1024 + newManifestListEntries.length * 512;
+
+  newStorageObjects[manifestListPath] = {
+    uri: manifestListPath,
+    type: 'manifest-list',
+    sizeBytes: manifestListSize,
+    createdAt: Date.now(),
+    isOrphan: false,
+    referencedBySnapshots: [newSnapshotId]
+  };
+
+  // Compute summary
+  const prevSummary = currentSnapshot.summary;
+  const newSummary: SnapshotSummary = {
+    operation: 'delete',
+    'added-delete-files': '1',
+    'deleted-records': String(matchingRows.length),
+    'total-data-files': prevSummary['total-data-files'] || '0',
+    'total-delete-files': String(parseInt(prevSummary['total-delete-files'] || '0', 10) + 1),
+    'total-records': String(Math.max(0, parseInt(prevSummary['total-records'] || '0', 10) - matchingRows.length)),
+    'iceberg-version': '2.0.0',
+    engine: 'Apache Iceberg Engine Simulator',
+    'commit-desc': commitMsg
+  };
+
+  const newSnapshot: IcebergSnapshot = {
+    'sequence-number': newSequenceNumber,
+    'snapshot-id': newSnapshotId,
+    'parent-snapshot-id': parentSnapshotId,
+    'timestamp-ms': Date.now(),
+    summary: newSummary,
+    'manifest-list': manifestListPath,
+    'schema-id': currentMetadata['current-schema-id']
+  };
+
+  const newMetadata: IcebergTableMetadataV2 = {
+    ...currentMetadata,
+    'last-sequence-number': newSequenceNumber,
+    'last-updated-ms': Date.now(),
+    'current-snapshot-id': newSnapshotId,
+    snapshots: [...currentMetadata.snapshots, newSnapshot],
+    'snapshot-log': [
+      ...currentMetadata['snapshot-log'],
+      { 'timestamp-ms': Date.now(), 'snapshot-id': newSnapshotId }
+    ],
+    'metadata-log': [
+      ...currentMetadata['metadata-log'],
+      { 'timestamp-ms': Date.now(), 'metadata-file': newMetadataLocation }
+    ]
+  };
+
+  newStorageObjects[newMetadataLocation] = {
+    uri: newMetadataLocation,
+    type: 'metadata',
+    sizeBytes: 2048 + newMetadata.snapshots.length * 400,
+    createdAt: Date.now(),
+    isOrphan: false,
+    referencedBySnapshots: [newSnapshotId]
+  };
+
+  const durationMs = Math.max(0.1, parseFloat((performance.now() - startTime).toFixed(2)));
+  const metric: OperationPerformanceMetric = {
+    id: `perf-${Date.now()}-${newSnapshotId}`,
+    timestamp: Date.now(),
+    operation: 'DELETE_MOR_EQ',
+    operationLabel: 'DELETE (MoR Equality)',
+    mode: 'mor',
+    durationMs,
+    recordsAffected: matchingRows.length,
+    filesWritten: 1,
+    filesRewritten: 0,
+    filesRead: manifestList.length,
+    bytesWritten: eqDeleteFileSize + delManifestSize + manifestListSize,
+    bytesRead: 0,
+    reusedManifestCount: manifestList.length,
+    details: `Equality delete on '${predicateStr}' wrote 1 equality delete Parquet file (content: 2, equality_ids: [${equalityFieldIds.join(', ')}]).`,
+    efficiencyVerdict: '⚡ MoR Equality Write: High write efficiency (0 data files rewritten, 1 equality tombstone written). Trade-off: Read queries must evaluate equality predicates during scan reconciliation.'
+  };
+
+  const insight: ArchitecturalInsight = {
+    id: `insight-${Date.now()}-${newSnapshotId}`,
+    timestamp: Date.now(),
+    category: 'MOR',
+    title: `MoR Equality Delete: ${matchingRows.length} row(s) deleted (content: 2)`,
+    description: `Created 1 Equality Delete (.parquet) file with equality IDs [${equalityFieldIds.join(', ')}] matching '${predicateStr}'. 0 Parquet data files were rewritten.`,
+    technicalDetails: `Apache Iceberg Spec v2 Equality Deletes allow deleting rows by column values without specifying data file paths or row offsets. Engines evaluating this table reconcile equality delete criteria during query scanning.`,
+    metrics: {
+      filesCreated: 1,
+      filesReused: manifestList.length,
+      storageBytes: Object.values(newStorageObjects).reduce((a, b) => a + b.sizeBytes, 0)
+    }
+  };
+
+  return {
+    catalogPointer: {
+      ...state.catalogPointer,
+      currentMetadataLocation: newMetadataLocation
+    },
+    metadataHistory: {
+      ...state.metadataHistory,
+      [newMetadataLocation]: newMetadata
+    },
+    manifestLists: {
+      ...state.manifestLists,
+      [manifestListPath]: newManifestListEntries
+    },
+    manifestFiles: {
+      ...state.manifestFiles,
+      [delManifestPath]: delManifestDoc
+    },
+    dataFileStorage: {
+      ...(state.dataFileStorage || {}),
+      ...newDataFileStorage
+    },
+    storageObjects: {
+      ...state.storageObjects,
+      ...newStorageObjects
+    },
+    metricsHistory: [metric, ...(state.metricsHistory || [])],
+    lastOperationMetric: metric,
     insights: [insight, ...state.insights]
   };
 }
@@ -694,6 +1067,7 @@ export function deleteRecordsCoW(
   predicateStr: string,
   commitMsg: string = 'Copy-on-Write (CoW) Delete'
 ): TableState {
+  const startTime = performance.now();
   const currentMetadata = state.metadataHistory[state.catalogPointer.currentMetadataLocation];
   if (currentMetadata['current-snapshot-id'] === null) return state;
 
@@ -707,6 +1081,8 @@ export function deleteRecordsCoW(
 
   let totalDeletedCount = 0;
   const newStorageObjects: Record<string, StorageObject> = {};
+  const newDataFileStorage: Record<string, ParquetStorageFile> = {};
+  const newManifestFiles: Record<string, ManifestFileDocument> = {};
   const newManifestListEntries: ManifestListEntry[] = [];
 
   const newSequenceNumber = currentMetadata['last-sequence-number'] + 1;
@@ -731,7 +1107,7 @@ export function deleteRecordsCoW(
         return;
       }
 
-      const rows = entry.data_file.rows_data || [];
+      const rows = getPhysicalRows(state, entry.data_file);
       const survivingRows = rows.filter(r => !matchesRowPredicates(r, predicates));
       const deletedRowsInFile = rows.length - survivingRows.length;
 
@@ -758,6 +1134,7 @@ export function deleteRecordsCoW(
           const newPath = `${currentMetadata.location}/data/${partKey}/cow-${fileUuid}.parquet`;
           const stats = computeColumnStats(survivingRows, currentSchema.fields);
 
+          // Per Apache Iceberg Spec v2, manifest entries ONLY contain file metadata and stats.
           const rewrittenDataFile: DataFileMetadata = {
             content: 0,
             file_path: newPath,
@@ -769,8 +1146,17 @@ export function deleteRecordsCoW(
             value_counts: stats.value_counts,
             null_value_counts: stats.null_value_counts,
             lower_bounds: stats.lower_bounds,
-            upper_bounds: stats.upper_bounds,
-            rows_data: survivingRows
+            upper_bounds: stats.upper_bounds
+          };
+
+          // Save surviving records in physical Parquet file storage
+          newDataFileStorage[newPath] = {
+            file_path: newPath,
+            file_format: 'PARQUET',
+            content_type: 'data',
+            record_count: survivingRows.length,
+            size_in_bytes: stats.file_size_in_bytes,
+            rows: survivingRows
           };
 
           localManifestEntries.push({
@@ -842,8 +1228,7 @@ export function deleteRecordsCoW(
         partitions: partSummaries
       });
 
-      // Update state manifestFiles
-      state.manifestFiles[newMPath] = newMDoc;
+      newManifestFiles[newMPath] = newMDoc;
     } else {
       // Manifest was untouched, reuse it!
       newManifestListEntries.push({
@@ -926,6 +1311,25 @@ export function deleteRecordsCoW(
     referencedBySnapshots: [newSnapshotId]
   };
 
+  const durationMs = Math.max(0.1, parseFloat((performance.now() - startTime).toFixed(2)));
+  const perfMetric: OperationPerformanceMetric = {
+    id: `perf-${Date.now()}-${newSnapshotId}`,
+    timestamp: Date.now(),
+    operation: 'DELETE_COW',
+    operationLabel: 'DELETE (CoW Rewrite)',
+    mode: 'cow',
+    durationMs,
+    recordsAffected: totalDeletedCount,
+    filesWritten: rewrittenDataFilesCount,
+    filesRewritten: deletedDataFilesCount,
+    filesRead: manifestList.length,
+    bytesWritten: Object.values(newStorageObjects).reduce((a, b) => a + b.sizeBytes, 0),
+    bytesRead: 0,
+    reusedManifestCount: manifestList.length - Object.keys(newManifestFiles).length,
+    details: `CoW Delete removed ${totalDeletedCount} row(s). Rewrote ${rewrittenDataFilesCount} Parquet file(s) and marked ${deletedDataFilesCount} old file(s) as DELETED.`,
+    efficiencyVerdict: `🐢 CoW Rewrite: Heavy write amplification (rewrote ${rewrittenDataFilesCount} Parquet files). Trade-off: Future read queries have ZERO merge overhead.`
+  };
+
   const insight: ArchitecturalInsight = {
     id: `insight-${Date.now()}-${newSnapshotId}`,
     timestamp: Date.now(),
@@ -953,12 +1357,19 @@ export function deleteRecordsCoW(
       [manifestListPath]: newManifestListEntries
     },
     manifestFiles: {
-      ...state.manifestFiles
+      ...state.manifestFiles,
+      ...newManifestFiles
+    },
+    dataFileStorage: {
+      ...(state.dataFileStorage || {}),
+      ...newDataFileStorage
     },
     storageObjects: {
       ...state.storageObjects,
       ...newStorageObjects
     },
+    metricsHistory: [perfMetric, ...(state.metricsHistory || [])],
+    lastOperationMetric: perfMetric,
     insights: [insight, ...state.insights]
   };
 }
@@ -973,6 +1384,7 @@ export function updateRecords(
   mode: 'mor' | 'cow' = 'mor',
   commitMsg: string = 'Updated records'
 ): TableState {
+  const startTime = performance.now();
   const currentMetadata = state.metadataHistory[state.catalogPointer.currentMetadataLocation];
   if (currentMetadata['current-snapshot-id'] === null) return state;
 
@@ -988,8 +1400,9 @@ export function updateRecords(
     const doc = state.manifestFiles[m.manifest_path];
     if (doc && doc.content === 0) {
       doc.entries.forEach(e => {
-        if (e.status !== 2 && e.data_file.rows_data) {
-          e.data_file.rows_data.forEach(r => {
+        if (e.status !== 2) {
+          const rows = getPhysicalRows(state, e.data_file);
+          rows.forEach(r => {
             if (matchesRowPredicates(r, predicates)) {
               allCurrentRows.push({ ...r, ...fieldUpdates });
             }
@@ -1009,6 +1422,27 @@ export function updateRecords(
   // 2. Then append modified records
   const finalState = appendRecords(deletedState, allCurrentRows, `${commitMsg} [Phase 2/2: Insert new]`);
 
+  const durationMs = Math.max(0.1, parseFloat((performance.now() - startTime).toFixed(2)));
+  const perfMetric: OperationPerformanceMetric = {
+    id: `perf-${Date.now()}-update`,
+    timestamp: Date.now(),
+    operation: mode === 'mor' ? 'UPDATE_MOR' : 'UPDATE_COW',
+    operationLabel: mode === 'mor' ? 'UPDATE (MoR Mode)' : 'UPDATE (CoW Mode)',
+    mode,
+    durationMs,
+    recordsAffected: allCurrentRows.length,
+    filesWritten: finalState.lastOperationMetric?.filesWritten || 1,
+    filesRewritten: mode === 'cow' ? (deletedState.lastOperationMetric?.filesRewritten || 1) : 0,
+    filesRead: manifestList.length,
+    bytesWritten: (deletedState.lastOperationMetric?.bytesWritten || 0) + (finalState.lastOperationMetric?.bytesWritten || 0),
+    bytesRead: 0,
+    reusedManifestCount: finalState.lastOperationMetric?.reusedManifestCount || 0,
+    details: `Updated ${allCurrentRows.length} record(s) matching '${predicateStr}' (${mode.toUpperCase()} mode).`,
+    efficiencyVerdict: mode === 'mor'
+      ? `⚡ MoR Update: Fast tombstone + append write without rewriting unaffected file chunks.`
+      : `🐢 CoW Update: Rewrote affected Parquet data files. Zero query-time merge overhead.`
+  };
+
   const insight: ArchitecturalInsight = {
     id: `insight-${Date.now()}-update`,
     timestamp: Date.now(),
@@ -1020,6 +1454,8 @@ export function updateRecords(
 
   return {
     ...finalState,
+    metricsHistory: [perfMetric, ...(finalState.metricsHistory || [])],
+    lastOperationMetric: perfMetric,
     insights: [insight, ...finalState.insights]
   };
 }
@@ -1041,6 +1477,7 @@ export function mergeRecords(
 ): TableState {
   if (!sourceRecords || sourceRecords.length === 0) return state;
 
+  const startTime = performance.now();
   const currentMetadata = state.metadataHistory[state.catalogPointer.currentMetadataLocation];
   if (currentMetadata['current-snapshot-id'] === null || currentMetadata.snapshots.length === 0) {
     // If no prior snapshot exists, all incoming records are treated as inserts
@@ -1087,7 +1524,7 @@ export function mergeRecords(
 
     doc.entries.forEach(e => {
       if (e.status === 2) return;
-      const rows = e.data_file.rows_data || [];
+      const rows = getPhysicalRows(state, e.data_file);
       const delPositions = activeDeletePositionsByFile[e.data_file.file_path] || new Set();
 
       rows.forEach((row, idx) => {
@@ -1140,6 +1577,8 @@ export function mergeRecords(
   const newMetadataLocation = `${currentMetadata.location}/metadata/v${versionNum}.metadata.json`;
 
   const newStorageObjects: Record<string, StorageObject> = {};
+  const newDataFileStorage: Record<string, ParquetStorageFile> = {};
+  const newManifestFiles: Record<string, ManifestFileDocument> = {};
   const newManifestListEntries: ManifestListEntry[] = [];
   let addedDataFilesCount = 0;
   let addedDeleteFilesCount = 0;
@@ -1167,6 +1606,7 @@ export function mergeRecords(
       const deleteFilePath = `${currentMetadata.location}/data/deletes/merge-del-${idx}-${delUuid}.parquet`;
       const deleteFileSize = 1024 + target.positions.length * 32;
 
+      // Per Apache Iceberg Spec v2, manifest entries ONLY contain file metadata and stats.
       const deleteFileMeta: DataFileMetadata = {
         content: 1, // POSITION_DELETES
         file_path: deleteFilePath,
@@ -1180,8 +1620,19 @@ export function mergeRecords(
         lower_bounds: {},
         upper_bounds: {},
         referenced_data_file: dataFilePath,
-        delete_positions: target.positions,
-        rows_data: target.rows
+        delete_positions: target.positions
+      };
+
+      // Physical delete parquet file stores the deleted rows
+      newDataFileStorage[deleteFilePath] = {
+        file_path: deleteFilePath,
+        file_format: 'PARQUET',
+        content_type: 'position_deletes',
+        record_count: target.positions.length,
+        size_in_bytes: deleteFileSize,
+        rows: target.rows,
+        referenced_data_file: dataFilePath,
+        delete_positions: target.positions
       };
 
       newDeleteManifestEntries.push({
@@ -1222,7 +1673,7 @@ export function mergeRecords(
       isOrphan: false,
       referencedBySnapshots: [newSnapshotId]
     };
-    state.manifestFiles[delManifestPath] = delManifestDoc;
+    newManifestFiles[delManifestPath] = delManifestDoc;
 
     newManifestListEntries.push({
       manifest_path: delManifestPath,
@@ -1273,8 +1724,17 @@ export function mergeRecords(
         value_counts: stats.value_counts,
         null_value_counts: stats.null_value_counts,
         lower_bounds: stats.lower_bounds,
-        upper_bounds: stats.upper_bounds,
-        rows_data: bucket.rows
+        upper_bounds: stats.upper_bounds
+      };
+
+      // Physical Parquet file storage maintains the rows
+      newDataFileStorage[filePath] = {
+        file_path: filePath,
+        file_format: 'PARQUET',
+        content_type: 'data',
+        record_count: bucket.rows.length,
+        size_in_bytes: stats.file_size_in_bytes,
+        rows: bucket.rows
       };
 
       createdDataFiles.push(dataFile);
@@ -1318,7 +1778,7 @@ export function mergeRecords(
       isOrphan: false,
       referencedBySnapshots: [newSnapshotId]
     };
-    state.manifestFiles[dataManifestPath] = dataManifestDoc;
+    newManifestFiles[dataManifestPath] = dataManifestDoc;
 
     newManifestListEntries.push({
       manifest_path: dataManifestPath,
@@ -1387,7 +1847,7 @@ export function mergeRecords(
           });
 
           // 2. Rewrite surviving rows + updated rows
-          const rows = entry.data_file.rows_data || [];
+          const rows = getPhysicalRows(state, entry.data_file);
           const deletedPositions = matchedOriginalRowPosByFile[entry.data_file.file_path] || new Set();
           const survivingRows = rows.filter((_, idx) => !deletedPositions.has(idx));
           const updatedRows = matchedUpdatesByFile[entry.data_file.file_path] || [];
@@ -1413,8 +1873,17 @@ export function mergeRecords(
               value_counts: stats.value_counts,
               null_value_counts: stats.null_value_counts,
               lower_bounds: stats.lower_bounds,
-              upper_bounds: stats.upper_bounds,
-              rows_data: rewrittenRows
+              upper_bounds: stats.upper_bounds
+            };
+
+            // Save in physical Parquet file storage
+            newDataFileStorage[newPath] = {
+              file_path: newPath,
+              file_format: 'PARQUET',
+              content_type: 'data',
+              record_count: rewrittenRows.length,
+              size_in_bytes: stats.file_size_in_bytes,
+              rows: rewrittenRows
             };
 
             localManifestEntries.push({
@@ -1482,7 +1951,7 @@ export function mergeRecords(
           partitions: summaries
         });
 
-        state.manifestFiles[newMPath] = newMDoc;
+        newManifestFiles[newMPath] = newMDoc;
       } else {
         // Manifest was untouched, reuse it!
         newManifestListEntries.push({
@@ -1526,8 +1995,17 @@ export function mergeRecords(
           value_counts: stats.value_counts,
           null_value_counts: stats.null_value_counts,
           lower_bounds: stats.lower_bounds,
-          upper_bounds: stats.upper_bounds,
-          rows_data: bucket.rows
+          upper_bounds: stats.upper_bounds
+        };
+
+        // Save in physical Parquet file storage
+        newDataFileStorage[filePath] = {
+          file_path: filePath,
+          file_format: 'PARQUET',
+          content_type: 'data',
+          record_count: bucket.rows.length,
+          size_in_bytes: stats.file_size_in_bytes,
+          rows: bucket.rows
         };
 
         insertDataFiles.push(dataFile);
@@ -1570,7 +2048,7 @@ export function mergeRecords(
         isOrphan: false,
         referencedBySnapshots: [newSnapshotId]
       };
-      state.manifestFiles[insertMPath] = insertMDoc;
+      newManifestFiles[insertMPath] = insertMDoc;
 
       newManifestListEntries.push({
         manifest_path: insertMPath,
@@ -1662,6 +2140,27 @@ export function mergeRecords(
     referencedBySnapshots: [newSnapshotId]
   };
 
+  const durationMs = Math.max(0.1, parseFloat((performance.now() - startTime).toFixed(2)));
+  const perfMetric: OperationPerformanceMetric = {
+    id: `perf-${Date.now()}-${newSnapshotId}`,
+    timestamp: Date.now(),
+    operation: mode === 'mor' ? 'MERGE_MOR' : 'MERGE_COW',
+    operationLabel: mode === 'mor' ? 'MERGE INTO (MoR)' : 'MERGE INTO (CoW)',
+    mode,
+    durationMs,
+    recordsAffected: matchedUpdates.length + unmatchedInserts.length,
+    filesWritten: addedDataFilesCount + addedDeleteFilesCount,
+    filesRewritten: deletedDataFilesCount,
+    filesRead: manifestList.length,
+    bytesWritten: Object.values(newStorageObjects).reduce((a, b) => a + b.sizeBytes, 0),
+    bytesRead: 0,
+    reusedManifestCount: newManifestListEntries.filter(m => m.reused_from_snapshot_id).length,
+    details: `MERGE INTO (${mode.toUpperCase()}): ${matchedUpdates.length} updated, ${unmatchedInserts.length} inserted on match key '${matchKey}'.`,
+    efficiencyVerdict: mode === 'mor'
+      ? `⚡ MoR Merge: High write efficiency (0 data files rewritten, appended ${addedDeleteFilesCount} delete & ${addedDataFilesCount} data files).`
+      : `🐢 CoW Merge: Heavy write (rewrote ${deletedDataFilesCount} Parquet files). Zero query-time merge overhead.`
+  };
+
   const insight: ArchitecturalInsight = {
     id: `insight-${Date.now()}-${newSnapshotId}`,
     timestamp: Date.now(),
@@ -1692,12 +2191,19 @@ export function mergeRecords(
       [manifestListPath]: newManifestListEntries
     },
     manifestFiles: {
-      ...state.manifestFiles
+      ...state.manifestFiles,
+      ...newManifestFiles
+    },
+    dataFileStorage: {
+      ...(state.dataFileStorage || {}),
+      ...newDataFileStorage
     },
     storageObjects: {
       ...state.storageObjects,
       ...newStorageObjects
     },
+    metricsHistory: [perfMetric, ...(state.metricsHistory || [])],
+    lastOperationMetric: perfMetric,
     insights: [insight, ...state.insights]
   };
 }
@@ -1710,6 +2216,7 @@ export function compactTable(
   state: TableState,
   commitMsg: string = 'Compaction / Rewrite Data Files'
 ): TableState {
+  const startTime = performance.now();
   const currentMetadata = state.metadataHistory[state.catalogPointer.currentMetadataLocation];
   if (currentMetadata['current-snapshot-id'] === null) return state;
 
@@ -1718,23 +2225,34 @@ export function compactTable(
   const currentSchema = currentMetadata.schemas.find(s => s['schema-id'] === currentMetadata['current-schema-id'])!;
   const partitionSpec = currentMetadata['partition-specs'].find(p => p['spec-id'] === currentMetadata['default-spec-id'])!;
 
-  // Collect all active data files and active deletes
+  // Collect all active data files, positional deletes, and equality deletes
   const activeDataEntries: ManifestEntry[] = [];
   const activeDeletePositionsByFile: Record<string, Set<number>> = {};
+  const activeEqualityDeletes: Array<{ equality_ids: number[]; rows: Record<string, any>[] }> = [];
+  let deleteFilesCount = 0;
 
   manifestList.forEach(m => {
     const doc = state.manifestFiles[m.manifest_path];
     if (!doc) return;
 
     if (doc.content === 1) {
-      // Positional delete manifest
+      // Delete manifest
       doc.entries.forEach(e => {
-        if (e.status !== 2 && e.data_file.referenced_data_file && e.data_file.delete_positions) {
-          const target = e.data_file.referenced_data_file;
-          if (!activeDeletePositionsByFile[target]) {
-            activeDeletePositionsByFile[target] = new Set();
+        if (e.status !== 2) {
+          deleteFilesCount++;
+          if (e.data_file.content === 1 && e.data_file.referenced_data_file && e.data_file.delete_positions) {
+            const target = e.data_file.referenced_data_file;
+            if (!activeDeletePositionsByFile[target]) {
+              activeDeletePositionsByFile[target] = new Set();
+            }
+            e.data_file.delete_positions.forEach(pos => activeDeletePositionsByFile[target].add(pos));
+          } else if (e.data_file.content === 2) {
+            const eqRows = state.dataFileStorage?.[e.data_file.file_path]?.rows || [];
+            activeEqualityDeletes.push({
+              equality_ids: e.data_file.equality_ids || [],
+              rows: eqRows
+            });
           }
-          e.data_file.delete_positions.forEach(pos => activeDeletePositionsByFile[target].add(pos));
         }
       });
     } else {
@@ -1747,27 +2265,33 @@ export function compactTable(
     }
   });
 
-  if (activeDataEntries.length <= 1 && Object.keys(activeDeletePositionsByFile).length === 0) {
+  if (activeDataEntries.length <= 1 && deleteFilesCount === 0) {
     return state; // Nothing to compact
   }
 
-  // Group surviving rows by partition
+  // Group surviving rows by partition, absorbing both positional and equality deletes
   const compactedPartitionBuckets: Record<string, { partitionMap: Record<string, any>; rows: Record<string, any>[] }> = {};
 
   activeDataEntries.forEach(entry => {
-    const rows = entry.data_file.rows_data || [];
+    const rows = getPhysicalRows(state, entry.data_file);
     const deletePositions = activeDeletePositionsByFile[entry.data_file.file_path] || new Set();
 
     rows.forEach((row, idx) => {
-      if (!deletePositions.has(idx)) {
-        const partMap = extractPartitionValues(row, partitionSpec.fields, currentSchema.fields);
-        const key = Object.entries(partMap).map(([k, v]) => `${k}=${v}`).join('/') || 'unpartitioned';
+      if (deletePositions.has(idx)) return;
 
-        if (!compactedPartitionBuckets[key]) {
-          compactedPartitionBuckets[key] = { partitionMap: partMap, rows: [] };
-        }
-        compactedPartitionBuckets[key].rows.push(row);
+      // Check equality deletes
+      const isDeletedByEquality = activeEqualityDeletes.some(eq =>
+        eq.rows.some(eqRow => Object.keys(eqRow).every(k => eqRow[k] === row[k]))
+      );
+      if (isDeletedByEquality) return;
+
+      const partMap = extractPartitionValues(row, partitionSpec.fields, currentSchema.fields);
+      const key = Object.entries(partMap).map(([k, v]) => `${k}=${v}`).join('/') || 'unpartitioned';
+
+      if (!compactedPartitionBuckets[key]) {
+        compactedPartitionBuckets[key] = { partitionMap: partMap, rows: [] };
       }
+      compactedPartitionBuckets[key].rows.push(row);
     });
   });
 
@@ -1778,6 +2302,7 @@ export function compactTable(
   const newMetadataLocation = `${currentMetadata.location}/metadata/v${versionNum}.metadata.json`;
 
   const newStorageObjects: Record<string, StorageObject> = {};
+  const newDataFileStorage: Record<string, ParquetStorageFile> = {};
   const newManifestEntries: ManifestEntry[] = [];
   const compactedDataFiles: DataFileMetadata[] = [];
   let totalCompactedRecords = 0;
@@ -1798,6 +2323,7 @@ export function compactTable(
     const compactedPath = `${currentMetadata.location}/data/${partKey}/compacted-${idx}-${fileUuid}.parquet`;
     const stats = computeColumnStats(bucket.rows, currentSchema.fields);
 
+    // Per Apache Iceberg Spec v2, manifest entries ONLY contain file metadata and stats.
     const dfMeta: DataFileMetadata = {
       content: 0,
       file_path: compactedPath,
@@ -1809,12 +2335,21 @@ export function compactTable(
       value_counts: stats.value_counts,
       null_value_counts: stats.null_value_counts,
       lower_bounds: stats.lower_bounds,
-      upper_bounds: stats.upper_bounds,
-      rows_data: bucket.rows
+      upper_bounds: stats.upper_bounds
     };
 
     compactedDataFiles.push(dfMeta);
     totalCompactedRecords += bucket.rows.length;
+
+    // Physical Parquet file storage maintains the rows
+    newDataFileStorage[compactedPath] = {
+      file_path: compactedPath,
+      file_format: 'PARQUET',
+      content_type: 'data',
+      record_count: bucket.rows.length,
+      size_in_bytes: stats.file_size_in_bytes,
+      rows: bucket.rows
+    };
 
     newManifestEntries.push({
       status: 1, // ADDED
@@ -1893,7 +2428,7 @@ export function compactTable(
     operation: 'replace',
     'deleted-data-files': String(activeDataEntries.length),
     'added-data-files': String(compactedDataFiles.length),
-    'removed-delete-files': String(Object.keys(activeDeletePositionsByFile).length),
+    'removed-delete-files': String(deleteFilesCount),
     'total-data-files': String(compactedDataFiles.length),
     'total-delete-files': '0',
     'total-records': String(totalCompactedRecords),
@@ -1937,12 +2472,31 @@ export function compactTable(
     referencedBySnapshots: [newSnapshotId]
   };
 
+  const durationMs = Math.max(0.1, parseFloat((performance.now() - startTime).toFixed(2)));
+  const perfMetric: OperationPerformanceMetric = {
+    id: `perf-${Date.now()}-${newSnapshotId}`,
+    timestamp: Date.now(),
+    operation: 'COMPACT',
+    operationLabel: 'COMPACT (Bin-Packing)',
+    mode: 'replace',
+    durationMs,
+    recordsAffected: totalCompactedRecords,
+    filesWritten: compactedDataFiles.length,
+    filesRewritten: activeDataEntries.length,
+    filesRead: manifestList.length,
+    bytesWritten: Object.values(newStorageObjects).reduce((a, b) => a + b.sizeBytes, 0),
+    bytesRead: 0,
+    reusedManifestCount: 0,
+    details: `Compacted ${activeDataEntries.length} data files and absorbed ${deleteFilesCount} delete file(s) into ${compactedDataFiles.length} clean Parquet file(s).`,
+    efficiencyVerdict: `🧹 Compaction Complete: Purged all delete tombstones and consolidated small data files. Future queries run at optimal speed with direct scans.`
+  };
+
   const insight: ArchitecturalInsight = {
     id: `insight-${Date.now()}-${newSnapshotId}`,
     timestamp: Date.now(),
     category: 'MAINTENANCE',
     title: `Table Compaction Complete: Replaced ${activeDataEntries.length} files with ${compactedDataFiles.length}`,
-    description: `Consolidated small files and absorbed all positional delete files into ${compactedDataFiles.length} optimized Parquet data file(s).`,
+    description: `Consolidated small files and absorbed all positional & equality delete files into ${compactedDataFiles.length} optimized Parquet data file(s).`,
     technicalDetails: `Compaction replaces many small files and MoR delete tombstones with optimally-sized data files, dramatically speeding up subsequent query scan operations and resolving the small-file problem.`
   };
 
@@ -1963,10 +2517,16 @@ export function compactTable(
       ...state.manifestFiles,
       [manifestFilePath]: manifestDoc
     },
+    dataFileStorage: {
+      ...(state.dataFileStorage || {}),
+      ...newDataFileStorage
+    },
     storageObjects: {
       ...state.storageObjects,
       ...newStorageObjects
     },
+    metricsHistory: [perfMetric, ...(state.metricsHistory || [])],
+    lastOperationMetric: perfMetric,
     insights: [insight, ...state.insights]
   };
 }
@@ -2117,3 +2677,50 @@ export function purgeOrphanFiles(state: TableState): {
     reclaimedBytes
   };
 }
+
+/**
+ * Expire historical snapshots based on retention count policy (R_snap).
+ * Retains the most recent `retainLastSnapshots` snapshots and prunes older ones.
+ */
+export function expireSnapshotsByRetention(
+  state: TableState,
+  retainLastSnapshots: number = 3
+): TableState {
+  const currentMetadata = state.metadataHistory[state.catalogPointer.currentMetadataLocation];
+  const allSnapshots = currentMetadata.snapshots;
+
+  // Need at least 2 snapshots total and more than retainLastSnapshots to expire
+  if (allSnapshots.length <= 1 || allSnapshots.length <= retainLastSnapshots) {
+    return state;
+  }
+
+  // The most recent `retainLastSnapshots` are kept; all older ones are expired
+  const keepCount = Math.max(1, retainLastSnapshots);
+  const snapshotsToExpire = allSnapshots.slice(0, allSnapshots.length - keepCount);
+  const snapshotIdsToExpire = snapshotsToExpire.map(s => s['snapshot-id']);
+
+  if (snapshotIdsToExpire.length === 0) return state;
+
+  return expireSnapshots(state, snapshotIdsToExpire);
+}
+
+/**
+ * Apply full Lakehouse Retention Policy (R_snap + optional orphan cleanup).
+ */
+export function applyTableRetentionPolicy(
+  state: TableState,
+  policy: {
+    retainLastSnapshots: number;
+    autoPurgeOrphans?: boolean;
+  }
+): TableState {
+  let updatedState = expireSnapshotsByRetention(state, policy.retainLastSnapshots);
+
+  if (policy.autoPurgeOrphans) {
+    const purgeResult = purgeOrphanFiles(updatedState);
+    updatedState = purgeResult.state;
+  }
+
+  return updatedState;
+}
+

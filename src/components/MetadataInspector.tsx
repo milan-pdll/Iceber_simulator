@@ -27,9 +27,10 @@ interface MetadataInspectorProps {
 export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
   selectedNode,
   onClose,
+  state,
   onOpenFullMetadata
 }) => {
-  const [activeTab, setActiveTab] = useState<'summary' | 'json' | 'stats' | 'storage'>('summary');
+  const [activeTab, setActiveTab] = useState<'summary' | 'json' | 'stats' | 'rows' | 'storage'>('summary');
   const [copied, setCopied] = useState<boolean>(false);
 
   const jsonPayload = React.useMemo(() => {
@@ -47,8 +48,38 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
         return selectedNode.data;
       case 'manifest-list':
         return selectedNode.data;
-      case 'manifest-file':
-        return selectedNode.data;
+      case 'manifest-file': {
+        // Per Apache Iceberg Spec v2, manifest files strictly contain file stats & bounds without rows.
+        const doc = selectedNode.data;
+        if (!doc || !doc.entries) return doc;
+        return {
+          path: doc.path,
+          schema_id: doc.schema_id,
+          partition_spec_id: doc.partition_spec_id,
+          content: doc.content === 1 ? '1 (DELETES)' : '0 (DATA)',
+          entries: doc.entries.map((e: any) => ({
+            status: e.status === 1 ? '1 (ADDED)' : (e.status === 2 ? '2 (DELETED)' : '0 (EXISTING)'),
+            snapshot_id: e.snapshot_id,
+            sequence_number: e.sequence_number,
+            data_file: {
+              content: e.data_file.content === 1 ? '1 (POSITION_DELETES)' : (e.data_file.content === 2 ? '2 (EQUALITY_DELETES)' : '0 (DATA)'),
+              file_path: e.data_file.file_path,
+              file_format: e.data_file.file_format,
+              partition: e.data_file.partition,
+              record_count: e.data_file.record_count,
+              file_size_in_bytes: e.data_file.file_size_in_bytes,
+              column_sizes: e.data_file.column_sizes,
+              value_counts: e.data_file.value_counts,
+              null_value_counts: e.data_file.null_value_counts,
+              lower_bounds: e.data_file.lower_bounds,
+              upper_bounds: e.data_file.upper_bounds,
+              ...(e.data_file.equality_ids ? { equality_ids: e.data_file.equality_ids } : {}),
+              ...(e.data_file.referenced_data_file ? { referenced_data_file: e.data_file.referenced_data_file } : {}),
+              ...(e.data_file.delete_positions ? { delete_positions: e.data_file.delete_positions } : {})
+            }
+          }))
+        };
+      }
       case 'data-file':
         return selectedNode.data;
       case 'delete-file':
@@ -79,11 +110,11 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
       case 'manifest-list':
         return 'Manifest List (.avro)';
       case 'manifest-file':
-        return 'Manifest File (.avro)';
+        return selectedNode.data?.content === 1 ? 'Delete Manifest (.avro)' : 'Manifest File (.avro)';
       case 'data-file':
         return 'Data File (.parquet)';
       case 'delete-file':
-        return 'Positional Delete (.delete)';
+        return selectedNode.data?.data_file?.content === 2 ? 'Equality Delete (.parquet)' : 'Positional Delete (.delete)';
     }
   };
 
@@ -149,7 +180,7 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
       </div>
 
       {/* Tabs */}
-      <div className="grid grid-cols-4 bg-slate-100 dark:bg-[#1E293B] border-b border-slate-200 dark:border-[#334155] px-2 pt-1 text-xs font-mono">
+      <div className={`grid ${(selectedNode.type === 'data-file' || selectedNode.type === 'delete-file') ? 'grid-cols-5' : 'grid-cols-4'} bg-slate-100 dark:bg-[#1E293B] border-b border-slate-200 dark:border-[#334155] px-2 pt-1 text-xs font-mono`}>
         <button
           onClick={() => setActiveTab('summary')}
           className={`py-2.5 font-medium border-b-2 transition-all uppercase tracking-wider text-[11px] ${
@@ -180,6 +211,18 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
         >
           Bounds
         </button>
+        {(selectedNode.type === 'data-file' || selectedNode.type === 'delete-file') && (
+          <button
+            onClick={() => setActiveTab('rows')}
+            className={`py-2.5 font-medium border-b-2 transition-all uppercase tracking-wider text-[11px] ${
+              activeTab === 'rows'
+                ? 'border-[#0052FF] text-[#0052FF] dark:text-[#4D7CFF] font-semibold'
+                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            Rows
+          </button>
+        )}
         <button
           onClick={() => setActiveTab('storage')}
           className={`py-2.5 font-medium border-b-2 transition-all uppercase tracking-wider text-[11px] ${
@@ -381,7 +424,104 @@ export const MetadataInspector: React.FC<MetadataInspectorProps> = ({
           </div>
         )}
 
-        {/* ================= TAB 4: OBJECT STORAGE ================= */}
+        {/* ================= TAB 4: PHYSICAL ROWS ================= */}
+        {activeTab === 'rows' && (
+          <div className="space-y-3">
+            {(() => {
+              const filePath = 'path' in selectedNode ? selectedNode.path : (selectedNode.data?.data_file?.file_path || '');
+              const storageEntry = state?.dataFileStorage?.[filePath];
+              const df = selectedNode.data?.data_file || selectedNode.data;
+              const rows: any[] = storageEntry?.rows || df?.rows_data || [];
+              const isEqDelete = df?.content === 2;
+              const isPosDelete = df?.content === 1;
+              const isDeleteFile = selectedNode.type === 'delete-file' || isEqDelete || isPosDelete;
+
+              return (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block font-calistoga">
+                      Physical Columnar File Contents (.parquet)
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border ${
+                      isEqDelete
+                        ? 'bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-500/40'
+                        : isPosDelete
+                        ? 'bg-rose-50 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-500/40'
+                        : 'bg-emerald-50 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/40'
+                    }`}>
+                      {isEqDelete ? 'Spec v2 Equality Delete (2)' : isPosDelete ? 'Spec v2 Positional Delete (1)' : 'Data Parquet (0)'}
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-[#0052FF]/5 dark:bg-[#0052FF]/10 border border-[#0052FF]/20 rounded-xl text-xs space-y-1">
+                    <span className="font-bold text-[#0052FF] dark:text-[#4D7CFF] block">
+                      Manifest vs. Physical Parquet Decoupling:
+                    </span>
+                    <p className="text-slate-600 dark:text-slate-300 leading-relaxed text-[11px]">
+                      Under Apache Iceberg Spec v2, manifests strictly store summary bounds and metrics. Physical row data is stored only inside columnar Parquet data and delete files.
+                    </p>
+                  </div>
+
+                  <div className="p-2.5 bg-slate-50 dark:bg-[#0F172A] rounded-xl border border-slate-200 dark:border-[#334155] font-mono text-[11px] space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Physical Path:</span>
+                      <span className="text-slate-700 dark:text-slate-300 truncate max-w-[260px] font-semibold">{getFilename(filePath)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Total Records Stored:</span>
+                      <span className="text-emerald-600 dark:text-emerald-400 font-bold">{rows.length}</span>
+                    </div>
+                    {isEqDelete && df?.equality_ids && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Equality Field IDs:</span>
+                        <span className="text-amber-600 dark:text-amber-400 font-bold">[{df.equality_ids.join(', ')}]</span>
+                      </div>
+                    )}
+                    {isPosDelete && df?.referenced_data_file && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Target Data File:</span>
+                        <span className="text-rose-600 dark:text-rose-400 truncate max-w-[240px]">{getFilename(df.referenced_data_file)}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {rows.length > 0 ? (
+                    <div className="border border-slate-200 dark:border-[#334155] rounded-xl overflow-hidden bg-white dark:bg-[#0F172A] shadow-sm max-h-72 overflow-y-auto">
+                      <table className="w-full text-left text-xs font-mono">
+                        <thead className="bg-slate-50 dark:bg-[#1E293B] text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-[#334155] sticky top-0">
+                          <tr>
+                            <th className="p-2.5">#</th>
+                            {Object.keys(rows[0] || {}).map(key => (
+                              <th key={key} className="p-2.5 uppercase text-[10px] tracking-wider">{key}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
+                          {rows.map((row, idx) => (
+                            <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-[#1E293B]/50 transition-colors">
+                              <td className="p-2.5 text-slate-400 font-bold text-[10px]">{idx}</td>
+                              {Object.keys(row).map(key => (
+                                <td key={key} className="p-2.5 truncate max-w-[140px]">
+                                  {typeof row[key] === 'object' ? JSON.stringify(row[key]) : String(row[key])}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-white dark:bg-[#1E293B] rounded-xl border border-slate-200 dark:border-[#334155] text-center text-xs text-slate-400 font-mono">
+                      {isDeleteFile ? 'No delete records stored in this delete file.' : 'No rows stored in this Parquet file.'}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* ================= TAB 5: OBJECT STORAGE ================= */}
         {activeTab === 'storage' && (
           <div className="space-y-3">
             <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block font-calistoga">

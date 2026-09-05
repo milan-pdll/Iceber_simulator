@@ -16,7 +16,12 @@ import {
   Sliders,
   FilePlus2,
   GitMerge,
-  Sparkles
+  Sparkles,
+  Activity,
+  Clock,
+  Timer,
+  CheckCircle,
+  Info
 } from 'lucide-react';
 import { formatBytes } from '../utils/formatting';
 
@@ -24,6 +29,7 @@ interface ControlPanelProps {
   state: TableState;
   onAppendRecords: (records: Record<string, any>[], msg?: string) => void;
   onDeleteRecordsMoR: (predicate: string, msg?: string) => void;
+  onDeleteRecordsEquality?: (predicate: string, msg?: string) => void;
   onDeleteRecordsCoW: (predicate: string, msg?: string) => void;
   onUpdateRecords: (predicate: string, updates: Record<string, any>, mode: 'mor' | 'cow', msg?: string) => void;
   onMergeRecords: (records: Record<string, any>[], matchKey: string, mode: 'mor' | 'cow', msg?: string) => void;
@@ -32,12 +38,20 @@ interface ControlPanelProps {
   onPurgeOrphans: () => void;
   onInitCustomTable: (name: string, fields: SchemaField[], partFields: PartitionField[]) => void;
   onOpenGCSimulator?: () => void;
+  retentionSnapshots?: number;
+  onChangeRetentionSnapshots?: (n: number) => void;
+  autoGCOnWrite?: boolean;
+  onToggleAutoGCOnWrite?: () => void;
+  autoPurgeOrphans?: boolean;
+  onToggleAutoPurgeOrphans?: () => void;
+  onApplyRetentionNow?: () => void;
 }
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
   state,
   onAppendRecords,
   onDeleteRecordsMoR,
+  onDeleteRecordsEquality,
   onDeleteRecordsCoW,
   onUpdateRecords,
   onMergeRecords,
@@ -45,9 +59,16 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onExpireSnapshots,
   onPurgeOrphans,
   onInitCustomTable,
-  onOpenGCSimulator
+  onOpenGCSimulator,
+  retentionSnapshots,
+  onChangeRetentionSnapshots,
+  autoGCOnWrite,
+  onToggleAutoGCOnWrite,
+  autoPurgeOrphans,
+  onToggleAutoPurgeOrphans,
+  onApplyRetentionNow
 }) => {
-  const [activeTab, setActiveTab] = useState<'append' | 'delete' | 'merge' | 'maintenance' | 'schema'>('append');
+  const [activeTab, setActiveTab] = useState<'append' | 'delete' | 'merge' | 'maintenance' | 'bench' | 'schema'>('append');
 
   const currentMetadata = state.metadataHistory[state.catalogPointer.currentMetadataLocation];
   const currentSchema = currentMetadata.schemas.find(s => s['schema-id'] === currentMetadata['current-schema-id']) || currentMetadata.schemas[0];
@@ -59,7 +80,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
   // Delete & Update state
   const [predicateInput, setPredicateInput] = useState<string>("category = 'web'");
-  const [deleteMode, setDeleteMode] = useState<'mor' | 'cow'>('mor');
+  const [deleteMode, setDeleteMode] = useState<'mor' | 'mor_eq' | 'cow'>('mor');
   const [updateField, setUpdateField] = useState<string>('');
   const [updateValue, setUpdateValue] = useState<string>('');
 
@@ -143,8 +164,10 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
   const handleDelete = () => {
     if (!predicateInput.trim()) return;
-    if (deleteMode === 'mor') {
-      onDeleteRecordsMoR(predicateInput, `MoR Tombstone Delete: ${predicateInput}`);
+    if (deleteMode === 'mor_eq' && onDeleteRecordsEquality) {
+      onDeleteRecordsEquality(predicateInput, `MoR Equality Delete: ${predicateInput}`);
+    } else if (deleteMode === 'mor') {
+      onDeleteRecordsMoR(predicateInput, `MoR Positional Delete: ${predicateInput}`);
     } else {
       onDeleteRecordsCoW(predicateInput, `CoW Rewrite Delete: ${predicateInput}`);
     }
@@ -156,7 +179,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     const updateObj: Record<string, any> = {
       [effectiveField]: updateValue
     };
-    onUpdateRecords(predicateInput, updateObj, deleteMode, `Updated ${effectiveField} where ${predicateInput}`);
+    const updateMode: 'mor' | 'cow' = deleteMode === 'cow' ? 'cow' : 'mor';
+    onUpdateRecords(predicateInput, updateObj, updateMode, `Updated ${effectiveField} where ${predicateInput}`);
   };
 
   // Helper to extract active records for realistic Merge Upsert simulation
@@ -283,7 +307,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   return (
     <div className="h-full flex flex-col bg-[#FAFAFA] dark:bg-[#0F172A] border-r border-slate-200 dark:border-[#334155] w-80 lg:w-96 select-none shrink-0 transition-colors duration-200">
       {/* Navigation Tabs */}
-      <div className="grid grid-cols-5 bg-slate-100 dark:bg-[#1E293B] border-b border-slate-200 dark:border-[#334155] p-1.5 gap-1 text-[11px]">
+      <div className="grid grid-cols-6 bg-slate-100 dark:bg-[#1E293B] border-b border-slate-200 dark:border-[#334155] p-1.5 gap-1 text-[11px]">
         <button
           onClick={() => setActiveTab('append')}
           className={`py-2 px-1 rounded-xl font-medium transition-all flex items-center justify-center space-x-1 ${
@@ -330,6 +354,18 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         >
           <FolderSync className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
           <span className="truncate">Cleanup</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('bench')}
+          className={`py-2 px-1 rounded-xl font-medium transition-all flex items-center justify-center space-x-1 ${
+            activeTab === 'bench'
+              ? 'bg-white dark:bg-[#0F172A] text-emerald-600 dark:text-emerald-400 font-semibold shadow-sm'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+          }`}
+        >
+          <Activity className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+          <span className="truncate">Bench</span>
         </button>
 
         <button
@@ -466,28 +502,39 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 Row-Level Mutation Mode
               </span>
 
-              <div className="grid grid-cols-2 gap-2 bg-slate-100 dark:bg-[#0F172A] p-1 rounded-xl border border-slate-200 dark:border-[#334155]">
+              <div className="grid grid-cols-3 gap-1.5 bg-slate-100 dark:bg-[#0F172A] p-1 rounded-xl border border-slate-200 dark:border-[#334155]">
                 <button
                   type="button"
                   onClick={() => setDeleteMode('mor')}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-semibold transition-all ${
+                  className={`py-1.5 px-1 rounded-lg text-[10px] font-semibold transition-all text-center ${
                     deleteMode === 'mor'
                       ? 'bg-white dark:bg-[#1E293B] text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/40 shadow-sm'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                   }`}
                 >
-                  Merge-on-Read (MoR)
+                  MoR Positional
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeleteMode('mor_eq')}
+                  className={`py-1.5 px-1 rounded-lg text-[10px] font-semibold transition-all text-center ${
+                    deleteMode === 'mor_eq'
+                      ? 'bg-white dark:bg-[#1E293B] text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/40 shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                  }`}
+                >
+                  MoR Equality
                 </button>
                 <button
                   type="button"
                   onClick={() => setDeleteMode('cow')}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-semibold transition-all ${
+                  className={`py-1.5 px-1 rounded-lg text-[10px] font-semibold transition-all text-center ${
                     deleteMode === 'cow'
                       ? 'bg-white dark:bg-[#1E293B] text-[#0052FF] dark:text-[#4D7CFF] border border-[#0052FF]/30 shadow-sm'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                   }`}
                 >
-                  Copy-on-Write (CoW)
+                  Copy-on-Write
                 </button>
               </div>
 
@@ -497,10 +544,20 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                   <>
                     <div className="font-bold text-rose-600 dark:text-rose-400 flex items-center gap-1">
                       <Zap className="w-3.5 h-3.5" />
-                      <span>Merge-on-Read (Fast Writes):</span>
+                      <span>MoR Positional Delete (Fast Writes):</span>
                     </div>
                     <p className="text-slate-600 dark:text-slate-400">
-                      Leaves original Parquet data files untouched on disk. Writes a lightweight positional <code className="text-rose-600 dark:text-rose-400 font-semibold font-mono">.delete</code> file containing row offsets.
+                      Leaves original Parquet files untouched. Writes a <code className="text-rose-600 dark:text-rose-400 font-semibold font-mono">.delete</code> file with row <strong>offsets</strong> (positions). Query engine merges at read time.
+                    </p>
+                  </>
+                ) : deleteMode === 'mor_eq' ? (
+                  <>
+                    <div className="font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                      <Zap className="w-3.5 h-3.5" />
+                      <span>MoR Equality Delete (Spec v2 / Fast Writes):</span>
+                    </div>
+                    <p className="text-slate-600 dark:text-slate-400">
+                      Writes an <code className="text-amber-600 dark:text-amber-400 font-semibold font-mono">equality_delete</code> file with matching <strong>field values</strong> instead of positions. Applied across the whole table by field ID matching.
                     </p>
                   </>
                 ) : (
@@ -510,7 +567,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                       <span>Copy-on-Write (Fast Reads):</span>
                     </div>
                     <p className="text-slate-600 dark:text-slate-400">
-                      Rewrites surviving records into a brand new Parquet data file. Marks the old file entry as <code className="text-[#0052FF] dark:text-[#4D7CFF] font-bold font-mono">status: 2 (DELETED)</code>.
+                      Rewrites surviving records into a brand new Parquet file. Marks old file entry as <code className="text-[#0052FF] dark:text-[#4D7CFF] font-bold font-mono">status: 2 (DELETED)</code>.
                     </p>
                   </>
                 )}
@@ -1006,6 +1063,157 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             </div>
           </div>
         )}
+
+        {/* ================= TAB 6: PERFORMANCE BENCHMARK ================= */}
+        {activeTab === 'bench' && (() => {
+          const metrics = state.metricsHistory || [];
+          const last = state.lastOperationMetric;
+          const morWrites = metrics.filter(m => m.operation.includes('MOR') || m.operation.includes('APPEND'));
+          const cowWrites = metrics.filter(m => m.operation.includes('COW'));
+          const queries = metrics.filter(m => m.operation === 'QUERY');
+          const avgMorMs = morWrites.length > 0 ? morWrites.reduce((a, m) => a + m.durationMs, 0) / morWrites.length : 0;
+          const avgCowMs = cowWrites.length > 0 ? cowWrites.reduce((a, m) => a + m.durationMs, 0) / cowWrites.length : 0;
+          const avgQueryMs = queries.length > 0 ? queries.reduce((a, m) => a + m.durationMs, 0) / queries.length : 0;
+
+          return (
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <div className="section-label border-emerald-300 dark:border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  <span>Performance Benchmark</span>
+                </div>
+                <h3 className="text-base font-calistoga tracking-tight text-slate-900 dark:text-white flex items-center gap-1.5 pt-1">
+                  Write vs. Read Efficiency
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  MoR optimizes write latency (O(append)); CoW optimizes query latency (no merge at read). Track tradeoffs below.
+                </p>
+              </div>
+
+              {/* Last operation metric highlight */}
+              {last && (
+                <div className={`p-3.5 rounded-xl border text-xs space-y-2 ${
+                  last.operation.includes('COW') ? 'bg-[#0052FF]/5 border-[#0052FF]/20' :
+                  last.operation === 'QUERY' ? 'bg-purple-50 dark:bg-purple-500/10 border-purple-200 dark:border-purple-500/30' :
+                  'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-200">
+                      <Timer className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>Last: {last.operation}</span>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border ${
+                      last.durationMs < 5 ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-300' :
+                      last.durationMs < 20 ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-300' :
+                      'bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border-rose-300'
+                    }`}>{last.durationMs.toFixed(2)} ms</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 font-mono text-[10px]">
+                    <div className="text-slate-500">Records Affected: <span className="text-slate-800 dark:text-slate-200 font-bold">{last.recordsAffected}</span></div>
+                    <div className="text-slate-500">Files Written: <span className="text-slate-800 dark:text-slate-200 font-bold">{last.filesWritten}</span></div>
+                    {last.filesRewritten > 0 && <div className="text-slate-500">Files Rewritten: <span className="text-amber-600 dark:text-amber-400 font-bold">{last.filesRewritten}</span></div>}
+                  </div>
+                  <div className="p-2 bg-white/60 dark:bg-[#0F172A]/60 rounded-lg text-[10px] space-y-0.5">
+                    {last.writeEfficiencyVerdict && <div className="text-slate-600 dark:text-slate-300">✍️ Write: <span className="font-semibold">{last.writeEfficiencyVerdict}</span></div>}
+                    {last.readEfficiencyVerdict && <div className="text-slate-600 dark:text-slate-300">📖 Read: <span className="font-semibold">{last.readEfficiencyVerdict}</span></div>}
+                  </div>
+                </div>
+              )}
+
+              {/* Aggregate averages */}
+              {metrics.length > 0 && (
+                <div className="card-signature p-3.5 space-y-3">
+                  <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block">Average Latency by Category</span>
+                  <div className="space-y-2">
+                    {[
+                      { label: 'MoR / Append Writes', ms: avgMorMs, count: morWrites.length, color: 'emerald' },
+                      { label: 'CoW Rewrites', ms: avgCowMs, count: cowWrites.length, color: 'blue' },
+                      { label: 'Queries', ms: avgQueryMs, count: queries.length, color: 'purple' }
+                    ].map(row => (
+                      <div key={row.label} className="space-y-1">
+                        <div className="flex justify-between text-[10px] font-mono">
+                          <span className="text-slate-500">{row.label}</span>
+                          <span className="text-slate-700 dark:text-slate-300 font-bold">
+                            {row.count > 0 ? `${row.ms.toFixed(2)} ms avg (${row.count})` : 'No data'}
+                          </span>
+                        </div>
+                        {row.count > 0 && (
+                          <div className="w-full bg-slate-100 dark:bg-[#0F172A] rounded-full h-1.5">
+                            <div
+                              className={`h-1.5 rounded-full bg-${row.color}-500`}
+                              style={{ width: `${Math.min(100, (row.ms / 50) * 100)}%` }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Benchmark history */}
+              <div className="card-signature p-3.5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">Metrics History</span>
+                  <span className="text-[10px] font-mono text-slate-400">{metrics.length} ops</span>
+                </div>
+                {metrics.length === 0 ? (
+                  <div className="text-center text-xs text-slate-400 font-mono py-4">
+                    Perform operations to track latency
+                  </div>
+                ) : (
+                  <div className="max-h-64 overflow-y-auto space-y-1.5">
+                    {[...metrics].reverse().map((m, idx) => (
+                      <div key={idx} className="flex items-center justify-between p-2 bg-slate-50 dark:bg-[#0F172A] rounded-lg text-[10px] font-mono">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                            m.operation === 'QUERY' ? 'bg-purple-500' :
+                            m.operation.includes('COW') ? 'bg-[#0052FF]' :
+                            'bg-emerald-500'
+                          }`} />
+                          <span className="text-slate-700 dark:text-slate-300 font-semibold truncate max-w-[130px]">{m.operation}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-400">{m.recordsAffected}r</span>
+                          <span className={`font-bold ${
+                            m.durationMs < 5 ? 'text-emerald-600 dark:text-emerald-400' :
+                            m.durationMs < 20 ? 'text-amber-600 dark:text-amber-400' :
+                            'text-rose-600 dark:text-rose-400'
+                          }`}>{m.durationMs.toFixed(2)}ms</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Educational comparison card */}
+              <div className="p-3.5 bg-gradient-to-br from-slate-50 to-slate-100 dark:from-[#1E293B] dark:to-[#0F172A] rounded-xl border border-slate-200 dark:border-[#334155] text-[11px] space-y-2">
+                <span className="font-bold text-slate-800 dark:text-slate-200 block">📚 MoR vs CoW Trade-off</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
+                    <div className="font-bold text-emerald-700 dark:text-emerald-400 mb-1">MoR (Write Fast)</div>
+                    <div className="text-emerald-600 dark:text-emerald-300 text-[10px] space-y-0.5">
+                      <div>✅ Near-instant writes</div>
+                      <div>✅ No file rewrite cost</div>
+                      <div>⚠️ Slower reads (merge)</div>
+                      <div>⚠️ Grows delete files</div>
+                    </div>
+                  </div>
+                  <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
+                    <div className="font-bold text-blue-700 dark:text-blue-400 mb-1">CoW (Read Fast)</div>
+                    <div className="text-blue-600 dark:text-blue-300 text-[10px] space-y-0.5">
+                      <div>✅ Clean, fast reads</div>
+                      <div>✅ No merge overhead</div>
+                      <div>⚠️ Expensive writes</div>
+                      <div>⚠️ Write amplification</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
